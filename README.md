@@ -55,11 +55,11 @@ npm run dev
 ```
 
 ### Endpoints (Semana 1)
-GET /api/health
-GET /api/db/test
-GET /api/users
-GET /api/users/:id
-POST /api/users/register
+GET /api/health  
+GET /api/db/test  
+GET /api/users  
+GET /api/users/:id  
+POST /api/users/register  
 
 ### Variables de Entorno
 Ver .env.example
