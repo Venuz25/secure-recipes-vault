@@ -1,16 +1,16 @@
 const pool = require('../config/database');
 const crypto = require('crypto');
+const bcrypt = require('bcrypt');
 
-// Generar UUID
-const generateUUID = () => {
-  return crypto.randomUUID();
-};
-
-// Obtener todos los usuarios (pruebas)
+// Obtener todos los usuarios
 exports.getAllUsers = async (req, res) => {
   try {
-    const [rows] = await pool.query('SELECT id, email, rol, created_at FROM usuarios');
+    const [rows] = await pool.query(
+      'SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios'
+    );
+
     res.json({ status: 'ok', data: rows });
+
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -19,14 +19,23 @@ exports.getAllUsers = async (req, res) => {
 // Obtener usuario por ID
 exports.getUserById = async (req, res) => {
   try {
+
     const { id } = req.params;
-    const [rows] = await pool.query('SELECT id, email, rol, created_at FROM usuarios WHERE id = ?', [id]);
-    
+
+    const [rows] = await pool.query(
+      'SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios WHERE id_usuario = ?',
+      [id]
+    );
+
     if (rows.length === 0) {
-      return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' });
+      return res.status(404).json({
+        status: 'error',
+        message: 'Usuario no encontrado'
+      });
     }
-    
+
     res.json({ status: 'ok', data: rows[0] });
+
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }
@@ -35,34 +44,55 @@ exports.getUserById = async (req, res) => {
 // Registrar usuario
 exports.registerUser = async (req, res) => {
   try {
-    const { email, password, rol } = req.body;
-    
+
+    const { nombre, correo, password, clave_publica } = req.body;
+
     // Validar datos
-    if (!email || !password || !rol) {
-      return res.status(400).json({ status: 'error', message: 'Faltan campos requeridos' });
+    if (!nombre || !correo || !password || !clave_publica) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Faltan campos requeridos'
+      });
     }
-    
-    // Validar rol
-    if (!['chef', 'suscriptor'].includes(rol)) {
-      return res.status(400).json({ status: 'error', message: 'Rol inválido' });
-    }
-    
-    // Generar ID y hash de contraseña
-    const id = generateUUID();
-    const password_hash = password; // Temporal
-    
-    // Insertar usuario
-    await pool.query(
-      'INSERT INTO usuarios (id, email, password_hash, rol) VALUES (?, ?, ?, ?)',
-      [id, email, password_hash, rol]
+
+    // Verificar si el correo ya existe
+    const [existing] = await pool.query(
+      'SELECT id_usuario FROM usuarios WHERE correo = ?',
+      [correo]
     );
-    
-    res.json({ 
-      status: 'ok', 
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'El correo ya está registrado'
+      });
+    }
+
+    // Hash de contraseña
+    const password_hash = await bcrypt.hash(password, 10);
+
+    // Insertar usuario
+    const [result] = await pool.query(
+      `INSERT INTO usuarios 
+      (nombre, correo, contraseña_hash, clave_publica) 
+      VALUES (?, ?, ?, ?)`,
+      [nombre, correo, password_hash, clave_publica]
+    );
+
+    res.json({
+      status: 'ok',
       message: 'Usuario registrado',
-      data: { id, email, rol }
+      data: {
+        id_usuario: result.insertId,
+        nombre,
+        correo
+      }
     });
+
   } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
   }
 };
