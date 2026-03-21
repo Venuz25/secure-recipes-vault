@@ -15,11 +15,14 @@ const AuthPage = () => {
     try {
       const res = await api.login(loginData);
       if (res.status === 'ok') {
-        localStorage.setItem('token', res.token);
-        alert('¡Bienvenido a mi bóveda culinaria! Vamos a cocinar.');
-        navigate('/home');
-      } else { alert(res.message || 'Credenciales incorrectas'); }
-    } catch (err) { alert('Error al sazonar el inicio de sesión'); }
+        alert('✅ ' + res.message); 
+        console.log('Usuario logueado:', res.data);
+      } else {
+        alert('❌ ' + res.message);
+      }
+    } catch (err) {
+      alert('No se pudo conectar con el servidor.');
+    }
   };
 
   const handleRegisterSubmit = async (e) => {

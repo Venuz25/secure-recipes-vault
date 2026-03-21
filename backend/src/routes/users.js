@@ -8,7 +8,8 @@ router.get('/', userController.getAllUsers);
 // GET /api/users/:id - Obtener usuario por ID
 router.get('/:id', userController.getUserById);
 
-// POST /api/users/register - Registrar usuario
 router.post('/register', userController.registerUser);
+router.post('/login', userController.loginUser);
+router.get('/confirmar/:token', userController.confirmEmail);
 
 module.exports = router;

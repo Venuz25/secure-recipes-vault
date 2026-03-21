@@ -22,7 +22,9 @@ async function getDB() {
         correo TEXT NOT NULL UNIQUE,
         contraseña_hash TEXT NOT NULL,
         clave_publica TEXT NOT NULL,
-        fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP
+        fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+        confirmado INTEGER DEFAULT 0,          -- 0 = No verificado, 1 = Verificado
+        token_confirmacion TEXT                -- Token único para el enlace
       );
 
       CREATE TABLE IF NOT EXISTS chef (
