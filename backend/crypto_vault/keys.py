@@ -36,7 +36,7 @@ def generate_and_encrypt(password_str):
 
     return {
         "public_key": public_pem,
-        "encrypted_private": encrypted_private.hex(),
+        "encrypted_private_key": encrypted_private.hex(),
         "salt": salt.hex(),
         "nonce": nonce.hex()
     }

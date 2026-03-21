@@ -19,7 +19,8 @@ const transporter = nodemailer.createTransport({
 const callPythonKeys = (password) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
-        const python = spawn('python', [scriptPath, password]);
+        // AÑADIMOS 'generate' antes de la contraseña
+        const python = spawn('python', [scriptPath, 'generate', password]); 
 
         let result = "";
         let errorData = "";
@@ -35,7 +36,7 @@ const callPythonKeys = (password) => {
             try {
                 resolve(JSON.parse(result));
             } catch (e) {
-                reject("Error al procesar la respuesta de Python");
+                reject(`Error al procesar la respuesta de Python. Recibido: ${result}`);
             }
         });
     });
@@ -137,7 +138,7 @@ exports.loginUser = async (req, res) => {
     const cryptoCheck = await new Promise((resolve) => {
       const python = spawn('python', [
         path.join(__dirname, '../../crypto_vault/keys.py'),
-        'decrypt', password, user.clave_privada_cifrada, user.crypto_salt, user.crypto_nonce
+        'decrypt', password, usuario.clave_privada_cifrada, usuario.crypto_salt, usuario.crypto_nonce
       ]);
       let result = "";
       python.stdout.on('data', (d) => result += d);
