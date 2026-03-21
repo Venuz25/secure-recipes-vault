@@ -46,27 +46,19 @@ exports.registerUser = async (req, res) => {
     try {
         const { nombre, correo, password } = req.body;
 
-        // 1. Validación de campos (clave_publica ya no es necesaria en el body)
         if (!nombre || !correo || !password) {
             return res.status(400).json({ status: 'error', message: 'Faltan ingredientes (nombre, correo o password)' });
         }
 
-        // 2. Verificar si el correo ya existe
         const existing = await pool.query('SELECT id_usuario FROM usuarios WHERE correo = ?', [correo]);
         if (existing && existing.length > 0) {
             return res.status(400).json({ status: 'error', message: 'Este correo ya está en nuestro recetario.' });
         }
 
-        // 3. LLAMADA A PYTHON: Generar par RSA y cifrar la privada con la contraseña + Salt
         const cryptoData = await callPythonKeys(password);
-
-        // 4. Hash de la contraseña para validación de LOGIN (Bcrypt)
         const password_hash = await bcrypt.hash(password, 10);
-
-        // 5. Generar token de confirmación de correo
         const token = crypto.randomBytes(32).toString('hex');
 
-        // 6. INSERTAR EN LA BASE DE DATOS
         const result = await pool.query(
             `INSERT INTO usuarios 
             (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
@@ -83,7 +75,6 @@ exports.registerUser = async (req, res) => {
             ]
         );
 
-        // 7. ENVÍO DE CORREO (Se mantiene igual que tu diseño anterior)
         const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}`;
         const mailOptions = {
             from: '"Chef Mexicana 🌶️" <boveda@recetas.com>',
@@ -131,18 +122,30 @@ exports.loginUser = async (req, res) => {
 
     const usuario = rows[0];
 
-    // 1. Verificar contraseña
     const match = await bcrypt.compare(password, usuario.contraseña_hash);
     if (!match) {
       return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
     }
 
-    // 2. Verificar si ya confirmó su correo
     if (usuario.confirmado === 0) {
       return res.status(403).json({ 
         status: 'error', 
         message: 'Por favor, confirma tu correo electrónico para entrar a la cocina.' 
       });
+    }
+
+    const cryptoCheck = await new Promise((resolve) => {
+      const python = spawn('python', [
+        path.join(__dirname, '../../crypto_vault/keys.py'),
+        'decrypt', password, user.clave_privada_cifrada, user.crypto_salt, user.crypto_nonce
+      ]);
+      let result = "";
+      python.stdout.on('data', (d) => result += d);
+      python.on('close', () => resolve(JSON.parse(result)));
+    });
+
+    if (cryptoCheck.status === 'error') {
+      return res.status(401).json({ status: 'error', message: 'Error de integridad en las llaves' });
     }
 
     res.json({ status: 'ok', message: '¡Acceso exitoso! Bienvenido a la bóveda.', data: { nombre: usuario.nombre } });
