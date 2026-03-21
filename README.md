@@ -13,9 +13,9 @@
 
 -----
 
-## Descripción
-
-Sistema web seguro de suscripción culinaria diseñado para garantizar la confidencialidad de recetas exclusivas de la Chef. El sistema emplea un modelo de **confianza parcial (Zero-Knowledge parcial)** donde el servidor almacena las identidades digitales de los usuarios cifradas bajo sus propias contraseñas, asegurando que ni el administrador de la red ni terceros puedan acceder al contenido sin autorización.
+## Descripción    
+Sistema web seguro de suscripción culinaria diseñado para garantizar la confidencialidad de recetas exclusivas de la Chef. El sistema emplea un modelo de **confianza parcial (Zero-Knowledge parcial)** donde el servidor almacena las identidades digitales de los usuarios cifradas bajo sus propias contraseñas, asegurando que ni el administrador de la red ni terceros puedan acceder al contenido sin autorización. Este proyecto nace del siguiente marco de referencia:  
+> Una chef mexicana quiere obtener unos beneficios extra con sus recetas. Ha decidido ofrecer un servicio web para compartir sus recetas. Ha decidido que cualquier persona que desee tener acceso a sus recetas debe pagar una suscripción. Los suscriptores deben firmar un contrato con la chef. Este contrato establece el coste y el periodo (3, 6 o 12 meses) de la suscripción. Las recetas se almacenan en un servidor de un tercero, y la chef quiere garantizar la confidencialidad de sus recetas, de modo que solo ella y sus suscriptores tengan acceso a ellas. Además, quiere utilizar criptografía de clave secreta para garantizar que, una vez finalizada la suscripción, las personas no tengan acceso a las recetas. La chef quiere realizar el proceso descrito anteriormente sin papel y utilizando criptografía híbrida. Imagina que la chef te ha contratado a ti y a tu equipo para proporcionar una solución.
 
 -----
 
