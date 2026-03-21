@@ -82,7 +82,7 @@ npm run dev
 
 -----
 
-## 🚀 API Endpoints Actualizados
+## API Endpoints Actualizados
 
 | Método | Ruta | Descripción |
 |--------|------|-------------|
@@ -93,7 +93,7 @@ npm run dev
 
 -----
 
-## 📁 Estructura Criptográfica (`/crypto_vault`)
+## Estructura Criptográfica (`/crypto_vault`)
 
   * **`keys.py`**: Motor de generación de identidades ECDSA P-256 y cifrado/descifrado de llaves privadas mediante PBKDF2.
   * **`cipher.py`**: Lógica de cifrado simétrico AES para el contenido de las recetas.
