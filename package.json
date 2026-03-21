@@ -1,0 +1,28 @@
+{
+  "name": "secure-recipes-vault",
+  "version": "1.0.0",
+  "description": "**ESCOM - IPN | Selected Topics of Cripthography | 7CM1**",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+"scripts": {
+  "dev": "concurrently \"npm run dev --prefix frontend\" \"npm run dev --prefix backend\"",
+  "install-all": "npm install && npm install --prefix frontend && npm install --prefix backend"
+},
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Venuz25/secure-recipes-vault.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Venuz25/secure-recipes-vault/issues"
+  },
+  "homepage": "https://github.com/Venuz25/secure-recipes-vault#readme",
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
