@@ -1,73 +1,103 @@
 # Recetas Deliciosas Como Servicio
 
-**ESCOM - IPN | Selected Topics of Cripthography | 7CM1**
+**ESCOM - IPN | Selected Topics of Cryptography | 7CM1**
 
----
+-----
 
 | | |
 |---|---|
 | **Profesora** | Sandra Díaz Santiago |
-| **Alumnos** | Areli Alejandra Guevara Badillo \| Héctor Rigel Ocaña Castro |
+| **Alumnos** | Areli Alejandra Guevara Badillo / Héctor Rigel Ocaña Castro |
 | **Inicio** | 2 de Marzo de 2026 |
 | **Entrega Final** | 30 de Abril de 2026 |
 
----
+-----
 
 ## Descripción
 
-Sistema web seguro donde una chef comparte recetas exclusivas mediante suscripción. Los suscriptores firman contratos digitales y acceden a recetas cifradas. Las recetas se almacenan en un servidor de terceros (AWS S3) garantizando confidencialidad mediante criptografía híbrida.
+Sistema web seguro de suscripción culinaria diseñado para garantizar la confidencialidad de recetas exclusivas de la Chef. El sistema emplea un modelo de **confianza parcial (Zero-Knowledge parcial)** donde el servidor almacena las identidades digitales de los usuarios cifradas bajo sus propias contraseñas, asegurando que ni el administrador de la red ni terceros puedan acceder al contenido sin autorización.
 
----
+-----
 
 ## Servicios de Seguridad
 
 | Servicio | Algoritmo | Propósito |
 |----------|-----------|-----------|
-| Cifrado de Recetas | AES-256-GCM | Confidencialidad del contenido |
-| Hash de Contratos | SHA-256 | Integridad de documentos |
-| Firma Digital | ECDSA (P-256) | Autenticación y no repudio |
-| Intercambio de Claves | ECDHE | Canal seguro (Forward Secrecy) |
-| Tickets de Acceso | AES-256-GCM | Control de expiración |
+| **Identidad Digital** | **ECDSA (Curva P-256)** | Generación de pares de claves para firmas y cifrado asimétrico. |
+| **Protección de Claves** | **PBKDF2 + AES-128-GCM** | Derivación de clave desde contraseña y cifrado de la clave privada en la BD. |
+| **Cifrado de Recetas** | **AES-128-GCM** | Confidencialidad del contenido de las recetas (Motor Python). |
+| **Integridad** | **SHA-256** | Verificación de que los archivos de recetas no han sido alterados. |
+| **Validación de Identidad** | **Token Dinámico (32 bytes)** | Confirmación de suscripción vía correo electrónico (Mailtrap). |
 
----
+-----
 
-## Arquitectura
+## Arquitectura del Sistema
+
+El sistema utiliza un puente de comunicación entre un entorno de ejecución **Node.js** y scripts especializados en **Python** para las operaciones criptográficas críticas.
 
 ```
-┌─────────────────────┐         ┌─────────────────────┐         ┌─────────────────────┐
-│   CLIENTE (Web)     │         │  SERVIDOR (Chef)    │         │   TERCEROS          │
-│                     │         │                     │         │                     │
-│  • React + Tailwind │ ──────► │  • Node.js + Express│ ──────► │  • AWS S3           │
-│  • Web Crypto API   │         │  • PostgreSQL       │         │  • Recetas Cifradas │
-│  • Cifrado/Descifrado│        │  • Gestión de Claves│         │                     │
-└─────────────────────┘         └─────────────────────┘         └─────────────────────┘
+┌─────────────────────┐      ┌─────────────────────┐      ┌─────────────────────┐
+│   CLIENTE (Web)     │      │   SERVIDOR (API)    │      │    PERSISTENCIA     │
+│                     │      │                     │      │                     │
+│ • React + Tailwind  │ ───► │ • Node.js + Express │ ───► │ • SQLite (DB Local) │
+│ • Axios (API Cons.) │      │ • Nodemailer (Mail) │      │ • recetas.db        │
+└─────────────────────┘      └──────────┬──────────┘      └─────────────────────┘
+                                        │
+                                        ▼
+                             ┌─────────────────────┐
+                             │ MOTOR CRIPTOGRÁFICO │
+                             │      (PYTHON)       │
+                             │ • PyCryptodome      │
+                             │ • ECDSA / AES-GCM   │
+                             └─────────────────────┘
 ```
 
----
+-----
 
-## Backend
+## Instalación y Configuración
 
-### Instalación
+### 1\. Requisitos Previos
+
+  * Node.js v18+
+  * Python 3.9+
+  * Cuenta en Mailtrap.io para pruebas de correo.
+
+### 2\. Configuración del Backend
+
 ```bash
+cd backend
 npm install
+pip install -r requirements.txt
 cp .env.example .env
 npm run dev
 ```
 
-### Endpoints (Semana 1)
-GET /api/health  
-GET /api/db/test  
-GET /api/users  
-GET /api/users/:id  
-POST /api/users/register  
+### 3\. Configuración del Frontend
 
-### Variables de Entorno
-Ver .env.example
+```bash
+cd frontend
+npm install
+npm run dev
+```
 
----
+-----
 
-<div align="center">
+## 🚀 API Endpoints Actualizados
 
-**Proyecto desarrollado para ESCOM-IPN 2026**
+| Método | Ruta | Descripción |
+|--------|------|-------------|
+| **POST** | `/api/users/register` | Registro de usuario y generación de claves ECDSA vía Python. |
+| **POST** | `/api/users/login` | Autenticación y desbloqueo de clave privada en memoria. |
+| **GET** | `/api/users/confirmar/:token` | Activación de cuenta mediante enlace de correo. |
+| **GET** | `/api/users` | (Test) Listado de usuarios registrados. |
 
-</div>
+-----
+
+## 📁 Estructura Criptográfica (`/crypto_vault`)
+
+  * **`keys.py`**: Motor de generación de identidades ECDSA P-256 y cifrado/descifrado de llaves privadas mediante PBKDF2.
+  * **`cipher.py`**: Lógica de cifrado simétrico AES para el contenido de las recetas.
+
+-----
+
+**Proyecto desarrollado para la materia de Tópicos Selectos de Criptografía - ESCOM 2026**
