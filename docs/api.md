@@ -1,6 +1,8 @@
 # Documentación de API - Recetas Deliciosas
 
 ## Base URL: http://localhost:3000/api
+## Iniciar Servicio: npm run dev 
+** en la carpeta raiz
 
 ## Endpoints Disponibles
 

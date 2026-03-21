@@ -2,6 +2,8 @@ const pool = require('../config/database');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const { spawn } = require('child_process');
+const path = require('path');
 
 // Configuración de transporte de correo
 const transporter = nodemailer.createTransport({
@@ -13,74 +15,108 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// GENERAR CLAVES: Llama al script de Python para generar claves
+const callPythonKeys = (password) => {
+    return new Promise((resolve, reject) => {
+        const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
+        const python = spawn('python', [scriptPath, password]);
+
+        let result = "";
+        let errorData = "";
+
+        python.stdout.on('data', (data) => { result += data.toString(); });
+        python.stderr.on('data', (data) => { errorData += data.toString(); });
+
+        python.on('close', (code) => {
+            if (code !== 0) {
+                reject(`Error en Python (Código ${code}): ${errorData}`);
+                return;
+            }
+            try {
+                resolve(JSON.parse(result));
+            } catch (e) {
+                reject("Error al procesar la respuesta de Python");
+            }
+        });
+    });
+};
+
 // REGISTRO: Crea usuario, genera token de confirmación y envía correo
 exports.registerUser = async (req, res) => {
-  try {
-    const { nombre, correo, password, clave_publica } = req.body;
+    try {
+        const { nombre, correo, password } = req.body;
 
-    // Validación de campos
-    if (!nombre || !correo || !password || !clave_publica) {
-      return res.status(400).json({ status: 'error', message: 'Faltan ingredientes (campos requeridos)' });
+        // 1. Validación de campos (clave_publica ya no es necesaria en el body)
+        if (!nombre || !correo || !password) {
+            return res.status(400).json({ status: 'error', message: 'Faltan ingredientes (nombre, correo o password)' });
+        }
+
+        // 2. Verificar si el correo ya existe
+        const existing = await pool.query('SELECT id_usuario FROM usuarios WHERE correo = ?', [correo]);
+        if (existing && existing.length > 0) {
+            return res.status(400).json({ status: 'error', message: 'Este correo ya está en nuestro recetario.' });
+        }
+
+        // 3. LLAMADA A PYTHON: Generar par RSA y cifrar la privada con la contraseña + Salt
+        const cryptoData = await callPythonKeys(password);
+
+        // 4. Hash de la contraseña para validación de LOGIN (Bcrypt)
+        const password_hash = await bcrypt.hash(password, 10);
+
+        // 5. Generar token de confirmación de correo
+        const token = crypto.randomBytes(32).toString('hex');
+
+        // 6. INSERTAR EN LA BASE DE DATOS
+        const result = await pool.query(
+            `INSERT INTO usuarios 
+            (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+                nombre, 
+                correo, 
+                password_hash, 
+                cryptoData.public_key, 
+                cryptoData.encrypted_private_key, 
+                cryptoData.salt, 
+                cryptoData.nonce,
+                token
+            ]
+        );
+
+        // 7. ENVÍO DE CORREO (Se mantiene igual que tu diseño anterior)
+        const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}`;
+        const mailOptions = {
+            from: '"Chef Mexicana 🌶️" <boveda@recetas.com>',
+            to: correo,
+            subject: "🍲 Confirma tu suscripción a la Bóveda Culinaria",
+            html: `
+                <div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif; max-width: 500px; margin: auto;">
+                    <h1 style="color: #5D4037; text-align: center;">¡Hola, ${nombre}!</h1>
+                    <p style="color: #8D6E63; font-size: 16px; line-height: 1.6;">
+                        Tu cuenta ha sido protegida con criptografía híbrida. Para activar tu acceso 
+                        y poder descifrar mis recetas con tu contraseña, confirma tu correo:
+                    </p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold;">
+                            Confirmar mi Cuenta
+                        </a>
+                    </div>
+                </div>
+            `
+        };
+
+        await transporter.sendMail(mailOptions);
+
+        res.json({
+            status: 'ok',
+            message: '¡Registro exitoso! Tu llave privada ha sido cifrada y guardada. Revisa tu correo.',
+            data: { id_usuario: result.insertId }
+        });
+
+    } catch (error) {
+        console.error("Error en registro:", error);
+        res.status(500).json({ status: 'error', message: "Error al procesar la seguridad del registro." });
     }
-
-    // Verificar si el correo ya existe
-    const existing = await pool.query('SELECT id_usuario FROM usuarios WHERE correo = ?', [correo]);
-    if (existing && existing.length > 0) {
-      return res.status(400).json({ status: 'error', message: 'Este correo ya está en nuestro recetario.' });
-    }
-
-    // Generar un token único para este registro
-    const token = crypto.randomBytes(32).toString('hex');
-
-    // Encriptar contraseña
-    const password_hash = await bcrypt.hash(password, 10);
-
-    // Insertar en la base de datos (incluyendo el token)
-    const result = await pool.query(
-      `INSERT INTO usuarios (nombre, correo, contraseña_hash, clave_publica, token_confirmacion) 
-       VALUES (?, ?, ?, ?, ?)`,
-      [nombre, correo, password_hash, clave_publica, token]
-    );
-
-    // Preparar el diseño del correo rústico
-    const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}`;
-    
-    const mailOptions = {
-      from: '"Chef Mexicana 🌶️" <boveda@recetas.com>',
-      to: correo,
-      subject: "🍲 Confirma tu suscripción a la Bóveda Culinaria",
-      html: `
-        <div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif; max-width: 500px; margin: auto;">
-          <h1 style="color: #5D4037; text-align: center;">¡Hola, ${nombre}!</h1>
-          <p style="color: #8D6E63; font-size: 16px; line-height: 1.6;">
-            Gracias por interesarte en mis recetas secretas. Para completar tu contrato digital y 
-            asegurar que nadie más use tu cuenta, por favor confirma tu correo haciendo clic abajo:
-          </p>
-          <div style="text-align: center; margin: 30px 0;">
-            <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 18px;">
-              Confirmar mi Cuenta
-            </a>
-          </div>
-          <p style="color: #A1887F; font-size: 12px; font-style: italic; text-align: center;">
-            Este enlace es parte de nuestro protocolo de criptografía híbrida para tu seguridad.
-          </p>
-        </div>
-      `
-    };
-
-    // Enviar el correo
-    await transporter.sendMail(mailOptions);
-
-    res.json({
-      status: 'ok',
-      message: '¡Casi listo! Revisa tu correo para confirmar tu cuenta y entrar a la cocina.',
-      data: { id_usuario: result.insertId }
-    });
-
-  } catch (error) {
-    console.error("Error en registro:", error);
-    res.status(500).json({ status: 'error', message: "Error al sazonar el registro." });
-  }
 };
 
 // LOGIN: Verifica credenciales y estado de confirmación
