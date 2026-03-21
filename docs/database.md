@@ -3,14 +3,16 @@
 ## Base de Datos: recetas_db
 
 ### Tabla: usuarios
-| Propiedad       | Tipo                        | Restricciones      | Descripción                                         |
-| --------------- | --------------------------- | ------------------ | --------------------------------------------------- |
-| id_usuario      | INT                         | PK, AUTO_INCREMENT | Identificador único del usuario                     |
-| nombre          | VARCHAR(100)                | NOT NULL           | Nombre del suscriptor                               |
-| correo          | VARCHAR(120)                | NOT NULL, UNIQUE   | Correo electrónico                                  |
-| contraseña_hash | VARCHAR(255)                | NOT NULL           | Contraseña almacenada como hash                     |
-| clave_publica   | TEXT                        | NOT NULL           | Clave pública del usuario para criptografía híbrida |
-| fecha_registro  | DATETIME                    | NOT NULL           | Fecha de registro                                   |
+| Propiedad          | Tipo                        | Restricciones      | Descripción                                         |
+| ------------------ | --------------------------- | ------------------ | --------------------------------------------------- |
+| id_usuario         | INT                         | PK, AUTO_INCREMENT | Identificador único del usuario                     |
+| nombre             | VARCHAR(100)                | NOT NULL           | Nombre del suscriptor                               |
+| correo             | VARCHAR(120)                | NOT NULL, UNIQUE   | Correo electrónico                                  |
+| contraseña_hash    | VARCHAR(255)                | NOT NULL           | Contraseña almacenada como hash                     |
+| clave_publica      | TEXT                        | NOT NULL           | Clave pública del usuario para criptografía híbrida |
+| fecha_registro     | DATETIME                    | NOT NULL           | Fecha de registro                                   |
+| confirmado         | INTEGER                     | NOT NULL           | Si el la cuenta esta confirmada o no                |
+| token_confirmacion | TEXT                        | NOT NULL           | Token de confirmación del correo                    |
 
 ### Tabla: chef
 | Propiedad             | Tipo de dato | Restricciones      | Descripción                                     |
