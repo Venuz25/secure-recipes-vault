@@ -1,4 +1,4 @@
-# Esquema de Base de Datos - MySQL
+# Esquema de Base de Datos
 
 ## Base de Datos: recetas_db
 

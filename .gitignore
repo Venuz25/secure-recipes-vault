@@ -5,6 +5,8 @@ frontend/node_modules/
 
 # Entorno de desarrollo
 secureRecipes/
-.env
-.DS_Store
-*.log
+
+
+backend/.env
+backend/.DS_Store
+backend/*.log
