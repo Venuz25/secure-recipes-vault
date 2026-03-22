@@ -1,38 +1,46 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api } from '../services/Api';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 
 const AuthPage = () => {
   const [isLogin, setIsLogin] = useState(true);
   const [isChefRegistration, setIsChefRegistration] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
   const [loginData, setLoginData] = useState({ correo: '', password: '' });
   const [registerData, setRegisterData] = useState({ nombre: '', email: '', password: '' });
 
-const handleLoginSubmit = async (e) => {
+  // --- LÓGICA DE INICIO DE SESIÓN ---
+  const handleLoginSubmit = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
-      const res = await api.login(loginData);
+      const res = await api.login(loginData); 
+      
       if (res.status === 'ok') {
-        if (res.data.rol === 'chef') {
-          console.log('Redirigiendo a panel de Chef...');
-          navigate('/ChefDashboard'); 
-        } else {
-          console.log('Redirigiendo a Bóveda de Usuario...');
-          // navigate('/home');
-        }
+        const idToSave = res.data.id_usuario || res.data.id_chef || res.data.id;
+  
+        localStorage.setItem('userId', idToSave); 
+        localStorage.setItem('userRole', res.data.rol);
+        
+        navigate(res.data.rol === 'chef' ? '/ChefDashboard' : '/Home');
       } else {
-        alert(res.message);
+        alert(res.message || "Credenciales incorrectas");
       }
     } catch (err) {
-      alert('No se pudo conectar con el servidor.');
+      console.error("Login Error:", err);
+      alert('Error: No se pudo conectar con la bóveda.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
+  // --- LÓGICA DE REGISTRO ---
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
       const dataToSend = { 
         nombre: registerData.nombre, 
@@ -52,14 +60,17 @@ const handleLoginSubmit = async (e) => {
         alert(res.message); 
       }
     } catch (err) { 
-      alert('Error al procesar el registro'); 
+      console.error("Register Error:", err);
+      alert('Error al procesar el registro en la base de datos.'); 
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Variantes de animación para los formularios
+  // Variantes de animación
   const formVariants = {
     hidden: (direction) => ({
-      x: direction > 0 ? '100%' : '-100%',
+      x: direction > 0 ? '50%' : '-50%',
       opacity: 0,
     }),
     visible: {
@@ -68,9 +79,9 @@ const handleLoginSubmit = async (e) => {
       transition: { type: 'spring', stiffness: 300, damping: 30 },
     },
     exit: (direction) => ({
-      x: direction < 0 ? '100%' : '-100%',
+      x: direction < 0 ? '50%' : '-50%',
       opacity: 0,
-      transition: { ease: 'easeInOut', duration: 0.3 },
+      transition: { ease: 'easeInOut', duration: 0.2 },
     }),
   };
 

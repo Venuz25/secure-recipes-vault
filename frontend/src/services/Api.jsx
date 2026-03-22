@@ -59,6 +59,12 @@ export const api = {
     return await response.json();
   },
 
+  // Obtener categorías de cocina para el formulario de subida de recetas
+  async getCategories() {
+    const response = await fetch(`${API_URL}/chef/categorias`);
+    return await response.json();
+  },
+
   // Actualizar perfil del chef (descripción, foto, etc.)
   async updateChefProfile(id_chef, profileData) {
     const response = await fetch(`${API_URL}/chef/profile/${id_chef}`, {
@@ -67,6 +73,14 @@ export const api = {
       body: JSON.stringify(profileData),
     });
     return await response.json();
+  },
+
+  // Actualizar receta (cifrado + actualización en BD)
+  async getDecryptedRecipe(id_receta) {
+      // Asegúrate de que la ruta sea EXACTAMENTE igual a la del router de arriba
+      const response = await fetch(`${API_URL}/chef/recipe/decrypt/${id_receta}`);
+      if (!response.ok) throw new Error('Error al obtener receta descifrada');
+      return await response.json();
   }
 };
 

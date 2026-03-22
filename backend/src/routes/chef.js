@@ -10,22 +10,24 @@ router.get('/dashboard/:id_chef', chefController.getChefDashboard);
 // PUT /api/chef/profile/:id_chef
 router.put('/profile/:id_chef', chefController.updateChefProfile);
 
+// Obtener categorías de cocina para el formulario de subida de recetas
+// GET /api/chef/categorias
+router.get('/categorias', chefController.getCategories);
+
 // Subir una nueva receta (Cifrado AES-128 + Registro en BD)
 // POST /api/chef/upload
 router.post('/upload', chefController.uploadRecipe);
 
-// Eliminar una receta de la bóveda
+// Obtener y descifrar una receta específica
+// GET /api/chef/recipe/decrypt/:id_receta
+router.get('/recipe/decrypt/:id_receta', chefController.getDecryptedRecipe);
+
+// Actualizar receta (Cifrado AES-128 + Actualización en BD)
+// PUT /api/chef/recipe/:id_receta
+router.put('/recipe/:id_receta', chefController.updateRecipe);
+
+// Eliminar receta
 // DELETE /api/chef/recipe/:id_receta
-router.delete('/recipe/:id_receta', async (req, res) => {
-    // Implementación rápida para borrar
-    try {
-        const { id_receta } = req.params;
-        const pool = require('../config/database');
-        await pool.query('DELETE FROM receta WHERE id_receta = ?', [id_receta]);
-        res.json({ status: 'ok', message: 'Receta eliminada de la bóveda.' });
-    } catch (e) {
-        res.status(500).json({ status: 'error', message: e.message });
-    }
-});
+router.delete('/recipe/:id_receta', chefController.deleteRecipe);
 
 module.exports = router;

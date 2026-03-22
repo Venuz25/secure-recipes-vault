@@ -5,7 +5,7 @@ const nodemailer = require('nodemailer');
 const { spawn } = require('child_process');
 const path = require('path');
 
-// Configuración de transporte de correo
+// --- CONFIGURACIÓN DE CORREO ---
 const transporter = nodemailer.createTransport({
   host: "sandbox.smtp.mailtrap.io",
   port: 2525,
@@ -15,32 +15,27 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// GENERAR CLAVES: Llama al script de Python para generar claves
+// --- HELPER: GENERAR CLAVES RSA (PYTHON) ---
 const callPythonKeys = (password) => {
-    return new Promise((resolve, reject) => {
-        const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
-        const python = spawn('python', [scriptPath, 'generate', password]); 
+  return new Promise((resolve, reject) => {
+    const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
+    const python = spawn('python', [scriptPath, 'generate', password]); 
 
-        let result = "";
-        let errorData = "";
+    let result = "";
+    let errorData = "";
 
-        python.stdout.on('data', (data) => { result += data.toString(); });
-        python.stderr.on('data', (data) => { errorData += data.toString(); });
+    python.stdout.on('data', (data) => { result += data.toString(); });
+    python.stderr.on('data', (data) => { errorData += data.toString(); });
 
-        python.on('close', (code) => {
-            if (code !== 0) {
-                reject(`Error en Python (Código ${code}): ${errorData}`);
-                return;
-            }
-            try {
-                resolve(JSON.parse(result));
-            } catch (e) {
-                reject(`Error al procesar la respuesta de Python. Recibido: ${result}`);
-            }
-        });
+    python.on('close', (code) => {
+      if (code !== 0) return reject(`Error en Python: ${errorData}`);
+      try { resolve(JSON.parse(result)); } 
+      catch (e) { reject(`Error parseando JSON: ${result}`); }
     });
+  });
 };
 
+// --- CONTROLADORES DE REGISTRO ---
 // REGISTRO USUARIO: Crea usuario, genera token de confirmación y envía correo
 exports.registerUser = async (req, res) => {
     try {
@@ -157,14 +152,17 @@ exports.registerChef = async (req, res) => {
   }
 };
 
+// --- CONTROLADOR DE LOGIN ---
 // LOGIN: Verifica credenciales y desbloquea llave privada
 exports.loginUser = async (req, res) => {
   try {
     const { correo, password } = req.body;
     let rol = 'usuario';
     
+    // 1. Buscar en usuarios
     let rows = await pool.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
     
+    // 2. Si no está, buscar en chef
     if (!rows || rows.length === 0) {
       rows = await pool.query('SELECT * FROM chef WHERE correo = ?', [correo]);
       if (rows && rows.length > 0) rol = 'chef';
@@ -176,70 +174,86 @@ exports.loginUser = async (req, res) => {
 
     const persona = rows[0];
 
+    // 3. Verificar contraseña Hash
     const match = await bcrypt.compare(password, persona.contraseña_hash);
     if (!match) return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
 
+    // 4. Verificar si está confirmado
     if (persona.confirmado === 0) {
       return res.status(403).json({ status: 'error', message: 'Por favor, confirma tu correo electrónico.' });
     }
 
+    // 5. Simular descifrado de llave privada (Criptografía Híbrida)
     const cryptoCheck = await new Promise((resolve) => {
       const python = spawn('python', [
         path.join(__dirname, '../../crypto_vault/keys.py'),
         'decrypt', password, persona.clave_privada_cifrada, persona.crypto_salt, persona.crypto_nonce
       ]);
       let result = "";
-      python.stdout.on('data', (d) => result += d);
-      python.on('close', () => resolve(JSON.parse(result || '{"status":"error"}')));
+      python.stdout.on('data', (d) => result += d.toString());
+      python.on('close', () => {
+          try { resolve(JSON.parse(result)); } 
+          catch(e) { resolve({status: 'error'}); }
+      });
     });
 
     if (cryptoCheck.status === 'error') {
-      return res.status(401).json({ status: 'error', message: 'Error de integridad en las llaves' });
+      return res.status(401).json({ status: 'error', message: 'Error de integridad en las llaves de seguridad' });
     }
+
+    // Determinamos cuál es el ID real (id_chef o id_usuario)
+    const idFinal = (rol === 'chef') ? persona.id_chef : persona.id_usuario;
 
     res.json({ 
       status: 'ok', 
       message: `¡Bienvenido ${rol === 'chef' ? 'Chef' : ''}!`, 
-      data: { nombre: persona.nombre, rol: rol } 
+      data: { 
+        id: idFinal,
+        nombre: persona.nombre, 
+        rol: rol 
+      } 
     });
   } catch (error) {
+    console.error("Error en Login:", error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-// CONFIRMACIÓN: Ahora soporta tanto usuarios como chefs usando el parámetro ?tipo=chef
+// CONFIRMACIÓN: Corregida para obtener el ID correctamente tras el UPDATE
 exports.confirmEmail = async (req, res) => {
   try {
     const { token } = req.params;
-    const { tipo } = req.query; // Obtener ?tipo=chef si existe
+    const { tipo } = req.query;
 
     const esChef = tipo === 'chef';
     const tabla = esChef ? 'chef' : 'usuarios';
     const idColumna = esChef ? 'id_chef' : 'id_usuario';
 
-    // Buscar el registro con el token
     const result = await pool.query(`SELECT ${idColumna} FROM ${tabla} WHERE token_confirmacion = ?`, [token]);
 
     if (!result || result.length === 0) {
       return res.send('<h1>El enlace ha expirado o es inválido.</h1>');
     }
 
-    const id = result[0][idColumna];
+    const idActual = result[0][idColumna];
 
-    // Marcar como confirmado
     await pool.query(
       `UPDATE ${tabla} SET confirmado = 1, token_confirmacion = NULL WHERE ${idColumna} = ?`,
-      [id]
+      [idActual]
     );
 
-    res.send(`<h1>¡Cuenta de ${esChef ? 'Chef' : 'Suscriptor'} confirmada! Ya puedes iniciar sesión.</h1>`);
+    res.send(`
+      <div style="text-align:center; font-family:sans-serif; margin-top:50px;">
+        <h1 style="color:#2E7D32;">¡Cuenta de ${esChef ? 'Chef' : 'Suscriptor'} confirmada!</h1>
+        <p>Ya puedes cerrar esta pestaña y entrar a la Bóveda.</p>
+      </div>
+    `);
   } catch (error) {
-    console.error("Error al confirmar:", error);
     res.status(500).send('Error al confirmar.');
   }
 };
 
-// TEST: Obtener todos los usuarios registrados
+// --- RUTAS DE TEST ---
 exports.getAllUsers = async (req, res) => {
   try {
     const rows = await pool.query('SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios');
@@ -249,15 +263,11 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
-// TEST: Obtener usuario por ID
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const rows = await pool.query('SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios WHERE id_usuario = ?', [id]);
-
-    if (!rows || rows.length === 0) {
-      return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' });
-    }
+    const rows = await pool.query('SELECT id_usuario, nombre, correo FROM usuarios WHERE id_usuario = ?', [id]);
+    if (!rows || rows.length === 0) return res.status(404).json({ status: 'error' });
     res.json({ status: 'ok', data: rows[0] });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
