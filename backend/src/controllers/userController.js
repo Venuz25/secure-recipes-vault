@@ -19,7 +19,6 @@ const transporter = nodemailer.createTransport({
 const callPythonKeys = (password) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
-        // AÑADIMOS 'generate' antes de la contraseña
         const python = spawn('python', [scriptPath, 'generate', password]); 
 
         let result = "";
@@ -42,25 +41,26 @@ const callPythonKeys = (password) => {
     });
 };
 
-// REGISTRO: Crea usuario, genera token de confirmación y envía correo
+// REGISTRO USUARIO: Crea usuario, genera token de confirmación y envía correo
 exports.registerUser = async (req, res) => {
     try {
         const { nombre, correo, password } = req.body;
 
         if (!nombre || !correo || !password) {
-            return res.status(400).json({ status: 'error', message: 'Faltan ingredientes (nombre, correo o password)' });
+            return res.status(400).json({ status: 'error', message: 'Faltan campos requeridos' });
         }
 
         const existing = await pool.query('SELECT id_usuario FROM usuarios WHERE correo = ?', [correo]);
         if (existing && existing.length > 0) {
-            return res.status(400).json({ status: 'error', message: 'Este correo ya está en nuestro recetario.' });
+            return res.status(400).json({ status: 'error', message: 'Este correo ya está registrado.' });
         }
 
         const cryptoData = await callPythonKeys(password);
         const password_hash = await bcrypt.hash(password, 10);
         const token = crypto.randomBytes(32).toString('hex');
 
-        const result = await pool.query(
+        // CORRECCIÓN: Se cambió encrypted_private_key por encrypted_private para coincidir con Python
+        await pool.query(
             `INSERT INTO usuarios 
             (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -85,8 +85,7 @@ exports.registerUser = async (req, res) => {
                 <div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif; max-width: 500px; margin: auto;">
                     <h1 style="color: #5D4037; text-align: center;">¡Hola, ${nombre}!</h1>
                     <p style="color: #8D6E63; font-size: 16px; line-height: 1.6;">
-                        Tu cuenta ha sido protegida con criptografía híbrida. Para activar tu acceso 
-                        y poder descifrar mis recetas con tu contraseña, confirma tu correo:
+                        Tu cuenta ha sido protegida con criptografía híbrida. Confirma tu correo para activar tu acceso:
                     </p>
                     <div style="text-align: center; margin: 30px 0;">
                         <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 15px 25px; text-decoration: none; border-radius: 8px; font-weight: bold;">
@@ -101,8 +100,8 @@ exports.registerUser = async (req, res) => {
 
         res.json({
             status: 'ok',
-            message: '¡Registro exitoso! Tu llave privada ha sido cifrada y guardada. Revisa tu correo.',
-            data: { id_usuario: result.insertId }
+            message: '¡Registro exitoso! Revisa tu correo para confirmar tu cuenta.',
+            data: { id_usuario: token }
         });
 
     } catch (error) {
@@ -111,12 +110,12 @@ exports.registerUser = async (req, res) => {
     }
 };
 
-// REGISTRO CHEF: Similar a usuario pero con tabla chef y correo de bienvenida específico
+// REGISTRO CHEF: Similar a usuario pero inserta en la tabla chef
 exports.registerChef = async (req, res) => {
   try {
     const { nombre, correo, password } = req.body;
+    console.log("Datos recibidos:", { nombre, correo });
 
-    // 1. Verificar si ya existe en usuarios o chef
     const checkUser = await pool.query('SELECT correo FROM usuarios WHERE correo = ?', [correo]);
     const checkChef = await pool.query('SELECT correo FROM chef WHERE correo = ?', [correo]);
     
@@ -124,48 +123,44 @@ exports.registerChef = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Este correo ya está registrado.' });
     }
 
-    // 2. Generar identidad ECDSA para la Chef vía Python
     const cryptoData = await callPythonKeys(password);
     const password_hash = await bcrypt.hash(password, 10);
     const token = crypto.randomBytes(32).toString('hex');
 
-    // 3. Insertar en tabla chef
-    const result = await pool.query(
+    await pool.query(
       `INSERT INTO chef 
       (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [nombre, correo, password_hash, cryptoData.public_key, cryptoData.encrypted_private, cryptoData.salt, cryptoData.nonce, token]
+      [nombre, correo, password_hash, cryptoData.public_key, cryptoData.encrypted_private_key, cryptoData.salt, cryptoData.nonce, token]
     );
 
-    // 4. Correo de confirmación (Mismo diseño rústico)
     const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}?tipo=chef`;
     await transporter.sendMail({
       from: '"Bóveda Culinaria 🌶️" <chef@recetas.com>',
       to: correo,
       subject: "👨‍🍳 ¡Bienvenida Chef! Confirme su identidad",
-      html: `<div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif;">
+      html: `<div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif; text-align: center;">
               <h1>Bienvenida Chef ${nombre}</h1>
-              <p>Haga clic abajo para activar su acceso y comenzar a subir sus secretos culinarios:</p>
-              <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Activar Cuenta de Chef</a>
+              <p>Activa tu acceso para comenzar a subir tus secretos culinarios:</p>
+              <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Activar Cuenta de Chef</a>
             </div>`
     });
 
-    res.json({ status: 'ok', message: 'Registro de Chef exitoso. Revise su correo.' });
+    res.json({ status: 'ok', message: 'Registro de Chef exitoso. Revisa tu correo para confirmar.' });
   } catch (error) {
+    console.error("Error en registro chef:", error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-// LOGIN: Verifica credenciales y estado de confirmación
+// LOGIN: Verifica credenciales y desbloquea llave privada
 exports.loginUser = async (req, res) => {
   try {
     const { correo, password } = req.body;
     let rol = 'usuario';
     
-    // Buscar primero en usuarios
     let rows = await pool.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
     
-    // Si no está en usuarios, buscar en chef
     if (!rows || rows.length === 0) {
       rows = await pool.query('SELECT * FROM chef WHERE correo = ?', [correo]);
       if (rows && rows.length > 0) rol = 'chef';
@@ -177,7 +172,6 @@ exports.loginUser = async (req, res) => {
 
     const persona = rows[0];
 
-    // Validaciones de seguridad
     const match = await bcrypt.compare(password, persona.contraseña_hash);
     if (!match) return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
 
@@ -209,23 +203,34 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-// CONFIRMACIÓN: Activa la cuenta mediante el token
+// CONFIRMACIÓN: Ahora soporta tanto usuarios como chefs usando el parámetro ?tipo=chef
 exports.confirmEmail = async (req, res) => {
   try {
     const { token } = req.params;
-    const user = await pool.query('SELECT id_usuario FROM usuarios WHERE token_confirmacion = ?', [token]);
+    const { tipo } = req.query; // Obtener ?tipo=chef si existe
 
-    if (!user || user.length === 0) {
+    const esChef = tipo === 'chef';
+    const tabla = esChef ? 'chef' : 'usuarios';
+    const idColumna = esChef ? 'id_chef' : 'id_usuario';
+
+    // Buscar el registro con el token
+    const result = await pool.query(`SELECT ${idColumna} FROM ${tabla} WHERE token_confirmacion = ?`, [token]);
+
+    if (!result || result.length === 0) {
       return res.send('<h1>El enlace ha expirado o es inválido.</h1>');
     }
 
+    const id = result[0][idColumna];
+
+    // Marcar como confirmado
     await pool.query(
-      'UPDATE usuarios SET confirmado = 1, token_confirmacion = NULL WHERE id_usuario = ?',
-      [user[0].id_usuario]
+      `UPDATE ${tabla} SET confirmado = 1, token_confirmacion = NULL WHERE ${idColumna} = ?`,
+      [id]
     );
 
-    res.send('<h1>¡Cuenta confirmada! Ya puedes cerrar esta pestaña e iniciar sesión.</h1>');
+    res.send(`<h1>¡Cuenta de ${esChef ? 'Chef' : 'Suscriptor'} confirmada! Ya puedes iniciar sesión.</h1>`);
   } catch (error) {
+    console.error("Error al confirmar:", error);
     res.status(500).send('Error al confirmar.');
   }
 };
@@ -233,9 +238,7 @@ exports.confirmEmail = async (req, res) => {
 // TEST: Obtener todos los usuarios registrados
 exports.getAllUsers = async (req, res) => {
   try {
-    const rows = await pool.query(
-      'SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios'
-    );
+    const rows = await pool.query('SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios');
     res.json({ status: 'ok', data: rows });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
@@ -246,10 +249,7 @@ exports.getAllUsers = async (req, res) => {
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;
-    const rows = await pool.query(
-      'SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios WHERE id_usuario = ?',
-      [id]
-    );
+    const rows = await pool.query('SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios WHERE id_usuario = ?', [id]);
 
     if (!rows || rows.length === 0) {
       return res.status(404).json({ status: 'error', message: 'Usuario no encontrado' });

@@ -13,13 +13,13 @@ export const api = {
 
   // Registrar un nuevo chef
   registerChef: async (data) => {
-  const res = await fetch(`${BASE_URL}/users/register-chef`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
-  });
-  return await res.json();
-},
+    const res = await fetch(`${BASE_URL}/users/register-chef`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    return await res.json();
+  },
 
   // Iniciar sesión
   async login(credentials) {
