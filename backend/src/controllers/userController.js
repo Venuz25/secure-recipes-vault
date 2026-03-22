@@ -139,11 +139,15 @@ exports.registerChef = async (req, res) => {
       from: '"Bóveda Culinaria 🌶️" <chef@recetas.com>',
       to: correo,
       subject: "👨‍🍳 ¡Bienvenida Chef! Confirme su identidad",
-      html: `<div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif; text-align: center;">
-              <h1>Bienvenida Chef ${nombre}</h1>
-              <p>Activa tu acceso para comenzar a subir tus secretos culinarios:</p>
-              <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Activar Cuenta de Chef</a>
-            </div>`
+      html: `
+                <div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif; max-width: 500px; margin: auto;">
+                    <h1 style="color: #5D4037; text-align: center;">Bienvenida Chef ${nombre}</h1>
+                    <p style="color: #8D6E63; font-size: 16px; line-height: 1.6;">Activa tu acceso para comenzar a subir tus secretos culinarios:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                      <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; font-weight: bold;">Activar Cuenta de Chef</a>
+                    </div>
+                </div>
+            `
     });
 
     res.json({ status: 'ok', message: 'Registro de Chef exitoso. Revisa tu correo para confirmar.' });

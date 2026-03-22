@@ -13,7 +13,7 @@ export const api = {
 
   // Registrar un nuevo chef
   registerChef: async (data) => {
-    const res = await fetch(`${BASE_URL}/users/register-chef`, {
+    const res = await fetch(`${API_URL}/users/register-chef`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
