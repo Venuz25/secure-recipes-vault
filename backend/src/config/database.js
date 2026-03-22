@@ -14,7 +14,7 @@ async function getDB() {
     // Activar soporte para claves foráneas
     await db.get('PRAGMA foreign_keys = ON');
 
-    // Creación de tablas según el esquema de MySQL adaptado a SQLite
+    // Creación de tablas según el esquema SQLite
     await db.exec(`
       CREATE TABLE IF NOT EXISTS usuarios (
         id_usuario INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +39,9 @@ async function getDB() {
         clave_privada_cifrada TEXT NOT NULL,
         crypto_salt TEXT NOT NULL,
         crypto_nonce TEXT NOT NULL,
+        descripcion TEXT,
+        foto_url TEXT,
+        estrellas INTEGER DEFAULT 5,
         fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
         confirmado INTEGER DEFAULT 0,
         token_confirmacion TEXT
@@ -47,12 +50,25 @@ async function getDB() {
       CREATE TABLE IF NOT EXISTS receta (
         id_receta INTEGER PRIMARY KEY AUTOINCREMENT,
         titulo TEXT NOT NULL,
+        subtitulo TEXT,
         descripcion TEXT,
+        tiempo_preparacion TEXT,
+        dificultad TEXT,
+        porciones INTEGER,
+        categoria TEXT,
         url_archivo_cifrado TEXT NOT NULL,
         hash_archivo TEXT NOT NULL,
         fecha_creacion DATETIME DEFAULT CURRENT_TIMESTAMP,
         id_chef INTEGER,
-        FOREIGN KEY (id_chef) REFERENCES chef(id_chef) ON DELETE CASCADE ON UPDATE CASCADE
+        FOREIGN KEY (id_chef) REFERENCES chef(id_chef) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS favoritos (
+        id_favorito INTEGER PRIMARY KEY AUTOINCREMENT,
+        id_usuario INTEGER NOT NULL,
+        id_receta INTEGER NOT NULL,
+        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE,
+        FOREIGN KEY (id_receta) REFERENCES receta(id_receta) ON DELETE CASCADE
       );
 
       CREATE TABLE IF NOT EXISTS contrato (

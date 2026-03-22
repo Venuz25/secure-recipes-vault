@@ -16,16 +16,15 @@ const handleLoginSubmit = async (e) => {
     try {
       const res = await api.login(loginData);
       if (res.status === 'ok') {
-        alert('✅ ' + res.message); 
         if (res.data.rol === 'chef') {
           console.log('Redirigiendo a panel de Chef...');
-          // navigate('/chef-dashboard'); 
+          navigate('/ChefDashboard'); 
         } else {
           console.log('Redirigiendo a Bóveda de Usuario...');
           // navigate('/home');
         }
       } else {
-        alert('❌ ' + res.message);
+        alert(res.message);
       }
     } catch (err) {
       alert('No se pudo conectar con el servidor.');

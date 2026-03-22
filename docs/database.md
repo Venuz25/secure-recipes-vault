@@ -18,13 +18,20 @@
 | token_confirmacion    | TEXT                        | NOT NULL           | Token de confirmación del correo                            |
 
 ### Tabla: chef
-| Propiedad             | Tipo de dato | Restricciones      | Descripción                                     |
-| --------------------- | ------------ | ------------------ | ----------------------------------------------- |
-| id_chef               | INT          | PK, AUTO_INCREMENT | Identificador de la chef                        |
-| nombre                | VARCHAR(100) | NOT NULL           | Nombre de la chef                               |
-| correo                | VARCHAR(120) | NOT NULL, UNIQUE   | Correo de contacto                              |
-| clave_publica         | TEXT         | NOT NULL           | Clave pública utilizada en criptografía híbrida |
-| clave_privada_cifrada | TEXT         | NOT NULL           | Clave privada almacenada cifrada                |
+| Propiedad             | Tipo de dato | Restricciones      | Descripción                                                 |
+| --------------------- | ------------ | ------------------ | ----------------------------------------------------------- |
+| id_chef               | INT          | PK, AUTO_INCREMENT | Identificador de la chef                                    |
+| nombre                | VARCHAR(100) | NOT NULL           | Nombre de la chef                                           |
+| correo                | VARCHAR(120) | NOT NULL, UNIQUE   | Correo de contacto                                          |
+| contraseña_hash       | VARCHAR(255) | NOT NULL           | Contraseña almacenada como hash                             |
+| clave_publica         | TEXT         | NOT NULL           | Clave pública utilizada en criptografía híbrida             |
+| clave_privada_cifrada | TEXT         | NOT NULL           | Clave pública del usuario para criptografía híbrida cifrada |
+| crypto_salt           | TEXT         | NOT NULL           | Salt para el descifrado de la clave privada                 |
+| crypto_nonce          | TEXT         | NOT NULL           | IV para el descifrado de la clave privada                   |
+| fecha_registro        | DATETIME     | NOT NULL           | Fecha de registro                                           |
+| confirmado            | INTEGER      | NOT NULL           | Si el la cuenta esta confirmada o no                        |
+| token_confirmacion    | TEXT         | NOT NULL           | Token de confirmación del correo                            |
+
 
 ### Tabla: receta
 | Propiedad           | Tipo         | Restricciones      | Descripción                    |

@@ -1,26 +1,31 @@
 """
 PROTECTOR DE RECETAS - Cifrado de Recetas
-Este módulo proporciona funciones para cifrar y descifrar recetas utilizando el algoritmo AES en modo CFB.
+Este módulo proporciona funciones para cifrar y descifrar recetas utilizando el algoritmo AES-128 en modo CFB.
 """
 
+import sys
+import json
 import os
-from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
-from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-def encrypt_recipe(data_bytes):
-    # Generamos una llave de 32 bytes y un IV de 16 bytes
-    key = os.urandom(32)
-    iv = os.urandom(16)
+def encrypt_content(data_json, key_hex):
+    key = bytes.fromhex(key_hex)
+    aesgcm = AESGCM(key)
+    nonce = os.urandom(12)
     
-    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    ciphertext = encryptor.update(data_bytes) + encryptor.finalize()
+    ciphertext = aesgcm.encrypt(nonce, data_json.encode('utf-8'), None)
     
-    return ciphertext, key, iv
+    return {
+        "nonce": nonce.hex(),
+        "ciphertext": ciphertext.hex()
+    }
 
-def decrypt_recipe(ciphertext, key, iv):
-    cipher = Cipher(algorithms.AES(key), modes.CFB(iv), backend=default_backend())
-    decryptor = cipher.decryptor()
-    decrypted_data = decryptor.update(ciphertext) + decryptor.finalize()
+if __name__ == "__main__":
+    if len(sys.argv) < 3:
+        sys.exit(1)
+        
+    recipe_data = sys.argv[1]
+    key_hex = sys.argv[2]
     
-    return decrypted_data
+    result = encrypt_content(recipe_data, key_hex)
+    print(json.dumps(result))

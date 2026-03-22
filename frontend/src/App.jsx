@@ -1,5 +1,6 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import AuthPage from './pages/AuthPage';
+import ChefDashboard from './pages/ChefDashboard';
 
 function App() {
   return (
@@ -10,7 +11,9 @@ function App() {
         
         <Route path="/login" element={<AuthPage />} />
         <Route path="/registro" element={<AuthPage />} />
+        <Route path="/ChefDashboard" element={<ChefDashboard />} /> 
 
+        
       </Routes>
     </Router>
   );

@@ -6,10 +6,10 @@
   "directories": {
     "doc": "docs"
   },
-"scripts": {
-  "dev": "concurrently \"npm run dev --prefix frontend\" \"npm run dev --prefix backend\"",
-  "install-all": "npm install && npm install --prefix frontend && npm install --prefix backend"
-},
+  "scripts": {
+    "dev": "concurrently \"npm run dev --prefix frontend\" \"npm run dev --prefix backend\"",
+    "install-all": "npm install && npm install --prefix frontend && npm install --prefix backend"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Venuz25/secure-recipes-vault.git"
@@ -24,5 +24,8 @@
   "homepage": "https://github.com/Venuz25/secure-recipes-vault#readme",
   "devDependencies": {
     "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "fs-extra": "^11.3.4"
   }
 }

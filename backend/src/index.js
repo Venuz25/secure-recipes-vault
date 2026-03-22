@@ -10,11 +10,15 @@ const PORT = process.env.PORT || 3000;
 // Middlewares
 app.use(cors());
 app.use(express.json());
+app.use(express.json({ limit: '10mb' })); 
+app.use(express.urlencoded({ limit: '10mb', extended: true }));
 
 // Rutas
 const usersRouter = require('./routes/users');
+const chefRouter = require('./routes/chef');
 
 app.use('/api/users', usersRouter);
+app.use('/api/chef', chefRouter);
 
 // Probar conexión a BD
 app.get('/api/db/test', async (req, res) => {
