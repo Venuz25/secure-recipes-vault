@@ -111,45 +111,99 @@ exports.registerUser = async (req, res) => {
     }
 };
 
+// REGISTRO CHEF: Similar a usuario pero con tabla chef y correo de bienvenida específico
+exports.registerChef = async (req, res) => {
+  try {
+    const { nombre, correo, password } = req.body;
+
+    // 1. Verificar si ya existe en usuarios o chef
+    const checkUser = await pool.query('SELECT correo FROM usuarios WHERE correo = ?', [correo]);
+    const checkChef = await pool.query('SELECT correo FROM chef WHERE correo = ?', [correo]);
+    
+    if ((checkUser && checkUser.length > 0) || (checkChef && checkChef.length > 0)) {
+      return res.status(400).json({ status: 'error', message: 'Este correo ya está registrado.' });
+    }
+
+    // 2. Generar identidad ECDSA para la Chef vía Python
+    const cryptoData = await callPythonKeys(password);
+    const password_hash = await bcrypt.hash(password, 10);
+    const token = crypto.randomBytes(32).toString('hex');
+
+    // 3. Insertar en tabla chef
+    const result = await pool.query(
+      `INSERT INTO chef 
+      (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [nombre, correo, password_hash, cryptoData.public_key, cryptoData.encrypted_private, cryptoData.salt, cryptoData.nonce, token]
+    );
+
+    // 4. Correo de confirmación (Mismo diseño rústico)
+    const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}?tipo=chef`;
+    await transporter.sendMail({
+      from: '"Bóveda Culinaria 🌶️" <chef@recetas.com>',
+      to: correo,
+      subject: "👨‍🍳 ¡Bienvenida Chef! Confirme su identidad",
+      html: `<div style="background-color: #FDF8F1; padding: 30px; border: 2px solid #D7CCC8; border-radius: 15px; font-family: 'Georgia', serif;">
+              <h1>Bienvenida Chef ${nombre}</h1>
+              <p>Haga clic abajo para activar su acceso y comenzar a subir sus secretos culinarios:</p>
+              <a href="${confirmUrl}" style="background-color: #D35400; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Activar Cuenta de Chef</a>
+            </div>`
+    });
+
+    res.json({ status: 'ok', message: 'Registro de Chef exitoso. Revise su correo.' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
 // LOGIN: Verifica credenciales y estado de confirmación
 exports.loginUser = async (req, res) => {
   try {
     const { correo, password } = req.body;
-    const rows = await pool.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
+    let rol = 'usuario';
+    
+    // Buscar primero en usuarios
+    let rows = await pool.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
+    
+    // Si no está en usuarios, buscar en chef
+    if (!rows || rows.length === 0) {
+      rows = await pool.query('SELECT * FROM chef WHERE correo = ?', [correo]);
+      if (rows && rows.length > 0) rol = 'chef';
+    }
 
     if (!rows || rows.length === 0) {
       return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
     }
 
-    const usuario = rows[0];
+    const persona = rows[0];
 
-    const match = await bcrypt.compare(password, usuario.contraseña_hash);
-    if (!match) {
-      return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
-    }
+    // Validaciones de seguridad
+    const match = await bcrypt.compare(password, persona.contraseña_hash);
+    if (!match) return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
 
-    if (usuario.confirmado === 0) {
-      return res.status(403).json({ 
-        status: 'error', 
-        message: 'Por favor, confirma tu correo electrónico para entrar a la cocina.' 
-      });
+    if (persona.confirmado === 0) {
+      return res.status(403).json({ status: 'error', message: 'Por favor, confirma tu correo electrónico.' });
     }
 
     const cryptoCheck = await new Promise((resolve) => {
       const python = spawn('python', [
         path.join(__dirname, '../../crypto_vault/keys.py'),
-        'decrypt', password, usuario.clave_privada_cifrada, usuario.crypto_salt, usuario.crypto_nonce
+        'decrypt', password, persona.clave_privada_cifrada, persona.crypto_salt, persona.crypto_nonce
       ]);
       let result = "";
       python.stdout.on('data', (d) => result += d);
-      python.on('close', () => resolve(JSON.parse(result)));
+      python.on('close', () => resolve(JSON.parse(result || '{"status":"error"}')));
     });
 
     if (cryptoCheck.status === 'error') {
       return res.status(401).json({ status: 'error', message: 'Error de integridad en las llaves' });
     }
 
-    res.json({ status: 'ok', message: '¡Acceso exitoso! Bienvenido a la bóveda.', data: { nombre: usuario.nombre } });
+    res.json({ 
+      status: 'ok', 
+      message: `¡Bienvenido ${rol === 'chef' ? 'Chef' : ''}!`, 
+      data: { nombre: persona.nombre, rol: rol } 
+    });
   } catch (error) {
     res.status(500).json({ status: 'error', message: error.message });
   }

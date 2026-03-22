@@ -9,6 +9,7 @@ router.get('/', userController.getAllUsers);
 router.get('/:id', userController.getUserById);
 
 router.post('/register', userController.registerUser);
+router.post('/register-chef', userController.registerChef);
 router.post('/login', userController.loginUser);
 router.get('/confirmar/:token', userController.confirmEmail);
 

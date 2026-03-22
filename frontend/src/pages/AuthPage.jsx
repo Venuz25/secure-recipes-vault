@@ -5,18 +5,25 @@ import { useNavigate, Link } from 'react-router-dom';
 
 const AuthPage = () => {
   const [isLogin, setIsLogin] = useState(true);
+  const [isChefRegistration, setIsChefRegistration] = useState(false);
   const navigate = useNavigate();
 
   const [loginData, setLoginData] = useState({ correo: '', password: '' });
   const [registerData, setRegisterData] = useState({ nombre: '', email: '', password: '' });
 
-  const handleLoginSubmit = async (e) => {
+const handleLoginSubmit = async (e) => {
     e.preventDefault();
     try {
       const res = await api.login(loginData);
       if (res.status === 'ok') {
         alert('✅ ' + res.message); 
-        console.log('Usuario logueado:', res.data);
+        if (res.data.rol === 'chef') {
+          console.log('Redirigiendo a panel de Chef...');
+          // navigate('/chef-dashboard'); 
+        } else {
+          console.log('Redirigiendo a Bóveda de Usuario...');
+          // navigate('/home');
+        }
       } else {
         alert('❌ ' + res.message);
       }
@@ -28,12 +35,26 @@ const AuthPage = () => {
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     try {
-      const res = await api.register({ ...registerData, correo: registerData.email, clave_publica: 'ECDSA_SECURE_KEY_TEMP' });
+      const dataToSend = { 
+        nombre: registerData.nombre, 
+        correo: registerData.email, 
+        password: registerData.password 
+      };
+
+      const res = isChefRegistration 
+        ? await api.registerChef(dataToSend) 
+        : await api.register(dataToSend);
+
       if (res.status === 'ok') {
-        alert('¡Bienvenido al club culinario! Tu contrato digital está listo.');
-        setIsLogin(true);
-      } else { alert(res.message); }
-    } catch (err) { alert('Error al sazonar el registro'); }
+        alert(res.message);
+        setIsLogin(true); 
+        setIsChefRegistration(false);
+      } else { 
+        alert(res.message); 
+      }
+    } catch (err) { 
+      alert('Error al procesar el registro'); 
+    }
   };
 
   // Variantes de animación para los formularios
@@ -56,45 +77,68 @@ const AuthPage = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4">
+      {/* BOTÓN SUPERIOR DERECHA: Cambiar entre registro de usuario y chef */}
+      {!isLogin && (
+        <div className="absolute top-8 right-8 z-20">
+          {isChefRegistration ? 
+          <button 
+            onClick={() => setIsChefRegistration(!isChefRegistration)}
+            className="bg-[#D35400] text-white px-6 py-2 rounded-full font-bold shadow-lg hover:bg-[#D35400] transition-all transform hover:scale-105"
+          >  Registrar como Suscriptor </button> 
+          : 
+          <button 
+            onClick={() => setIsChefRegistration(!isChefRegistration)}
+            className="bg-[#5D4037] text-white px-6 py-2 rounded-full font-bold shadow-lg hover:bg-[#3E2723] transition-all transform hover:scale-105"
+          >  Eres Chef? Regístrate!! </button> }
+        </div>
+      )}
       
-      {/* Contenedor Principal (Tarjeta de Recetario) */}
       <div className="max-w-4xl w-full flex flex-col md:flex-row bg-white rounded-3xl recipe-card-shadow overflow-hidden relative border border-[#D7CCC8]">
         
-        {/* Lado Decorativo Estático (Panel Verde Forestal / Naranja Quemado) */}
-        <div className={`md:w-2/5 p-12 flex flex-col justify-center text-white relative transition-colors duration-500 ${isLogin ? 'bg-[#2E7D32]' : 'bg-[#D35400]'}`}>
+        {/* Panel Decorativo Izquierdo */}
+        <div className={`md:w-2/5 p-12 flex flex-col justify-center text-white relative transition-colors duration-500 ${
+          isLogin ? 'bg-[#2E7D32]' : (isChefRegistration ? 'bg-[#5D4037]' : 'bg-[#D35400]')
+        }`}>
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cork-board.png")' }}></div>
+          
           <motion.div
-            key={isLogin ? 'login-text' : 'register-text'}
+            // La 'key' dinámica permite que la animación se reinicie al cambiar de estado
+            key={isLogin ? 'login' : (isChefRegistration ? 'chef' : 'register')}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
-            className="relative"
+            className="relative text-center"
           >
+            {/* El ícono se mantiene igual, solo cambia el color de su fondo circular */}
+            <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 ${
+              isLogin ? 'bg-green-100 text-[#2E7D32]' : (isChefRegistration ? 'bg-amber-100 text-[#5D4037]' : 'bg-orange-100 text-[#D35400]')
+            }`}>
+              <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
+              </svg>
+            </div>
+
             {isLogin ? (
               <>
-                <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center text-[#2E7D32] mx-auto mb-6">                 
-                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
-                  </svg>
-                </div>
                 <h1 className="text-4xl font-serif-recipe font-bold mb-4">La Bóveda Culiniaria</h1>
                 <p className="text-emerald-100 text-lg">Inicia sesión para desbloquear mis secretos de cocina más preciados.</p>
               </>
             ) : (
               <>
-                <div className="w-24 h-24 bg-orange-100 rounded-full flex items-center justify-center text-[#D35400] mx-auto mb-6">                 
-                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"></path>
-                  </svg>
-                </div>
-                <h1 className="text-4xl font-serif-recipe font-bold mb-4">Únete a mi Cocina</h1>
-                <p className="text-orange-100 text-lg">Regístrate para suscribirte y acceder a recetas exclusivas mediante tu contrato digital culinario.</p>
+                <h1 className="text-4xl font-serif-recipe font-bold mb-4">
+                  {isChefRegistration ? 'Únete como Chef' : 'Únete a la Bóveda'}
+                </h1>
+                <p className="text-orange-100 text-lg">
+                  {isChefRegistration 
+                    ? 'Protege tus recetas con criptografía híbrida.' 
+                    : 'Suscríbete para acceder a recetas exclusivas.'}
+                </p>
               </>
             )}
           </motion.div>
         </div>
 
-        {/* Lado de Formularios Dinámicos con Animación */}
+        {/* Lado de Formularios*/}
         <div className="md:w-3/5 p-10 bg-white relative min-h-[550px]">
           <AnimatePresence initial={false} custom={isLogin ? -1 : 1}>
             
@@ -102,7 +146,7 @@ const AuthPage = () => {
             {isLogin && (
               <motion.div
                 key="login-form"
-                custom={1} // Dirección de la animación
+                custom={1}
                 variants={formVariants}
                 initial="hidden"
                 animate="visible"
@@ -121,33 +165,32 @@ const AuthPage = () => {
               </motion.div>
             )}
 
-            {/* FORMULARIO DE REGISTRO */}
+            {/* REGISTRO (DINÁMICO: USUARIO O CHEF) */}
             {!isLogin && (
-              <motion.div
-                key="register-form"
-                custom={-1} // Dirección de la animación (opuesta)
-                variants={formVariants}
-                initial="hidden"
-                animate="visible"
-                exit="exit"
-                className="absolute inset-x-10 top-10"
-              >
-                 <div className="absolute top-0 right-0 text-[#2E7D32] opacity-20">
-                    {/* Icono de Tenedor y Cuchara Culiniario */}
-                    <svg width="60" height="60" fill="currentColor" viewBox="0 0 24 24"><path d="M11,9H9V2H7V9H5V2H3V9C3,11.12 4.66,12.84 6.75,12.97V22H9.25V12.97C11.34,12.84 13,11.12 13,9V2H11V9M16,6V14H18.5V22H21V2H16C16,4.21 17.79,6 20,6V6H16Z"/></svg>
-                </div>
-                <h2 className="text-3xl font-serif-recipe font-bold text-[#5D4037] mb-1">Nueva Cuenta</h2>
-                <p className="text-[#8D6E63] mb-6 italic">Empecemos nuestro contrato digital culinario</p>
+              <motion.div key="register" custom={-1} variants={formVariants} initial="hidden" animate="visible" exit="exit" className="absolute inset-x-10 top-10">
+                <h2 className="text-3xl font-serif font-bold text-[#5D4037] mb-1">
+                  {isChefRegistration ? 'Registro de Chef' : 'Nueva Cuenta'}
+                </h2>
+                <p className="text-[#8D6E63] mb-6 italic">
+                  {isChefRegistration ? 'Sube y protege tus creaciones' : 'Empecemos nuestro contrato digital'}
+                </p>
                 <form onSubmit={handleRegisterSubmit} className="space-y-4">
-                  <input type="text" placeholder="Tu Nombre de Chef" className="w-full p-3 bg-[#FAFAFA] border-b-2 border-[#D7CCC8] focus:border-[#E67E22] outline-none transition-colors" onChange={(e) => setRegisterData({...registerData, nombre: e.target.value})} required />
-                  <input type="email" placeholder="Correo electrónico" className="w-full p-3 bg-[#FAFAFA] border-b-2 border-[#D7CCC8] focus:border-[#E67E22] outline-none transition-colors" onChange={(e) => setRegisterData({...registerData, email: e.target.value})} required />
-                  <input type="password" placeholder="Crea tu contraseña secreta culiniaria" className="w-full p-3 bg-[#FAFAFA] border-b-2 border-[#D7CCC8] focus:border-[#E67E22] outline-none transition-colors" onChange={(e) => setRegisterData({...registerData, password: e.target.value})} required />
-                  {/* Nota: En una fase futura, aquí agregarías los campos de contrato (período de suscripción) */}
-                  <p className="text-xs text-[#8D6E63] mt-2">* Al registrarte, aceptas firmar un contrato culinario digital por tu suscripción a la Bóveda Culiniaria.</p>
-                  <button className="w-full bg-[#E67E22] hover:bg-[#D35400] text-white font-bold py-4 rounded-xl shadow-lg transform transition active:scale-95 uppercase tracking-widest mt-4">Suscribirme y Empezar</button>
+                  <input type="text" placeholder={isChefRegistration ? "Nombre del Chef" : "Tu Nombre Completo"} className="w-full p-3 bg-[#FAFAFA] border-b-2 border-[#D7CCC8] focus:border-[#E67E22] outline-none" onChange={(e) => setRegisterData({...registerData, nombre: e.target.value})} required />
+                  <input type="email" placeholder="Correo electrónico" className="w-full p-3 bg-[#FAFAFA] border-b-2 border-[#D7CCC8] focus:border-[#E67E22] outline-none" onChange={(e) => setRegisterData({...registerData, email: e.target.value})} required />
+                  <input type="password" placeholder="Contraseña segura" className="w-full p-3 bg-[#FAFAFA] border-b-2 border-[#D7CCC8] focus:border-[#E67E22] outline-none" onChange={(e) => setRegisterData({...registerData, password: e.target.value})} required />
+                  
+                  <p className="text-xs text-[#8D6E63] mt-2">
+                    {isChefRegistration 
+                      ? '* Al registrarte, aceptas los términos de autoría y protección de datos.' 
+                      : '* Al registrarte, aceptas firmar un contrato culinario digital por tu suscripción.'}
+                  </p>
+                  
+                  <button className={`w-full text-white font-bold py-4 rounded-xl shadow-lg uppercase transition-colors ${isChefRegistration ? 'bg-[#5D4037] hover:bg-[#3E2723]' : 'bg-[#E67E22] hover:bg-[#D35400]'}`}>
+                    {isChefRegistration ? 'Crear Cuenta de Chef' : 'Suscribirme'}
+                  </button>
                 </form>
-                <div className="mt-8 text-center text-sm text-[#8D6E63]">
-                  ¿Ya tienes cuenta? <button onClick={() => setIsLogin(true)} className="text-[#D35400] font-bold hover:underline">Inicia sesión aquí</button>
+                <div className="mt-8 text-center text-[#8D6E63]">
+                  ¿Ya tienes cuenta? <button onClick={() => {setIsLogin(true); setIsChefRegistration(false);}} className="text-[#D35400] font-bold hover:underline">Inicia sesión</button>
                 </div>
               </motion.div>
             )}

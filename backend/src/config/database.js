@@ -34,8 +34,14 @@ async function getDB() {
         id_chef INTEGER PRIMARY KEY AUTOINCREMENT,
         nombre TEXT NOT NULL,
         correo TEXT NOT NULL UNIQUE,
+        contraseña_hash TEXT NOT NULL,
         clave_publica TEXT NOT NULL,
-        clave_privada_cifrada TEXT NOT NULL
+        clave_privada_cifrada TEXT NOT NULL,
+        crypto_salt TEXT NOT NULL,
+        crypto_nonce TEXT NOT NULL,
+        fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
+        confirmado INTEGER DEFAULT 0,
+        token_confirmacion TEXT
       );
 
       CREATE TABLE IF NOT EXISTS receta (
