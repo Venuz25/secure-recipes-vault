@@ -51,6 +51,23 @@ export const api = {
     return await response.json();
   },
 
+  // Actualizar una receta existente (con re-cifrado)
+  updateRecipe: async (id_receta, recipeData) => {
+    try {
+      const response = await fetch(`${API_URL}/chef/recipe/${id_receta}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(recipeData),
+      });
+      return await response.json();
+    } catch (error) {
+      console.error("Error en Api.updateRecipe:", error);
+      throw error;
+    }
+  },
+
   // Eliminar una receta
   async deleteRecipe(id_receta) {
     const response = await fetch(`${API_URL}/chef/recipe/${id_receta}`, {
@@ -75,12 +92,55 @@ export const api = {
     return await response.json();
   },
 
-  // Actualizar receta (cifrado + actualización en BD)
+  // Descifrar y obtener el contenido de una receta (para edición)
   async getDecryptedRecipe(id_receta) {
-      // Asegúrate de que la ruta sea EXACTAMENTE igual a la del router de arriba
       const response = await fetch(`${API_URL}/chef/recipe/decrypt/${id_receta}`);
       if (!response.ok) throw new Error('Error al obtener receta descifrada');
       return await response.json();
-  }
-};
+  },
 
+  // --- DASHBOARD DEL USUARIO ---
+  // Buscar recetas con filtros
+  exploreRecipes: async (filters) => {
+    const query = new URLSearchParams(filters).toString();
+    const res = await fetch(`${API_URL}/subscriber/explore?${query}`);
+    return await res.json();
+  },
+
+  // Obtener favoritos y suscripciones
+  getUserLibrary: async (id_usuario) => {
+    const res = await fetch(`${API_URL}/subscriber/my-library/${id_usuario}`);
+    return await res.json();
+  },
+
+  // Alternar favoritos (Añadir/Quitar)
+  toggleFavorite: async (id_usuario, id_receta) => {
+    const res = await fetch(`${API_URL}/subscriber/favorite/toggle`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_usuario, id_receta }),
+    });
+    return await res.json();
+  },
+
+  // Crear suscripción (Contrato)
+  createSubscription: async (data) => {
+    const res = await fetch(`${API_URL}/subscriber/subscribe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  },
+
+  // Acceso a receta cifrada para el suscriptor
+  getSubscriberRecipeContent: async (data) => {
+    const res = await fetch(`${API_URL}/subscriber/recipe/access`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    return await res.json();
+  }
+
+};

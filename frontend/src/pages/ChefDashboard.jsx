@@ -128,18 +128,52 @@ const ChefDashboard = () => {
     }
   };
 
+  // Guardado de receta
   const handleSaveRecipe = async () => {
-    const recipeData = { ...newRecipe, id_chef: id };
-    const res = editingId 
-      ? await api.updateRecipe(editingId, recipeData)
-      : await api.uploadRecipe(recipeData);
+    // 1. Extraemos los datos
+    const { titulo, subtitulo, descripcion, id_categoria, tiempo_preparacion, porciones, dificultad, contenido } = newRecipe;
 
-    if (res.status === 'ok') {
-      setShowModal(false);
-      setEditingId(null);
-      setNewRecipe(initialRecipeState);
-      loadData();
-      alert(res.message);
+    // 2. Validación de campos de texto básicos
+    if (!titulo.trim() || !subtitulo.trim() || !descripcion.trim() || !id_categoria || !tiempo_preparacion.trim() || !porciones || !dificultad) {
+      alert("¡Cuidado chef! Todos los campos de texto deben estar completos para sazonar tu receta.");
+      return;
+    }
+
+    // 3. Validación de contenido cifrado
+    // Verificamos que al menos un ingrediente tenga nombre y cantidad
+    const tieneIngrediente = contenido.ingredientes.some(ing => ing.nombre.trim() !== '' && ing.cantidad.trim() !== '');
+    
+    // Verificamos que al menos un paso no esté vacío
+    const tienePaso = contenido.pasos.some(paso => paso.trim() !== '');
+    
+    // Verificamos que al menos una imagen tenga una URL
+    const tieneImagen = contenido.imagenes.some(img => img.trim() !== '');
+
+    if (!tieneIngrediente || !tienePaso || !tieneImagen) {
+      alert("Algo falta en tu receta... como podra el suscriptor disfrutar de tu secreto si no hay ingredientes, pasos o imágenes?");
+      return;
+    }
+
+    // 4. Si todo es válido, subimos al backend para cifrar y guardar
+    try {
+      const recipeData = { ...newRecipe, id_chef: id };
+      
+      const res = editingId 
+        ? await api.updateRecipe(editingId, recipeData)
+        : await api.uploadRecipe(recipeData);
+
+      if (res.status === 'ok') {
+        setShowModal(false);
+        setEditingId(null);
+        setNewRecipe(initialRecipeState);
+        loadData();
+        alert(res.message);
+      } else {
+        alert("Error del servidor: " + res.message);
+      }
+    } catch (error) {
+      console.error("Error al guardar la receta:", error);
+      alert("Hubo un fallo en la conexión con la bóveda.");
     }
   };
 

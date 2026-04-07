@@ -25,7 +25,7 @@ const AuthPage = () => {
         localStorage.setItem('userId', idToSave); 
         localStorage.setItem('userRole', res.data.rol);
         
-        navigate(res.data.rol === 'chef' ? '/ChefDashboard' : '/Home');
+        navigate(res.data.rol === 'chef' ? '/ChefDashboard' : '/UserDashboard');
       } else {
         alert(res.message || "Credenciales incorrectas");
       }

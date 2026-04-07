@@ -200,16 +200,43 @@ exports.updateRecipe = async (req, res) => {
     try {
         const { id_receta } = req.params;
         const { titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, contenido } = req.body;
-        
+
+        // 1. Validación de campos obligatorios en el servidor
+        if (!titulo || !subtitulo || !descripcion || !tiempo_preparacion || !dificultad || !porciones || !id_categoria) {
+            return res.status(400).json({ status: 'error', message: 'Todos los campos básicos son obligatorios.' });
+        }
+
+        // Validación de contenido cifrado mínimo
+        const tieneIngredientes = contenido?.ingredientes?.some(i => i.nombre.trim() !== '' && i.cantidad.trim() !== '');
+        const tienePasos = contenido?.pasos?.some(p => p.trim() !== '');
+        const tieneImagenes = contenido?.imagenes?.some(img => img.trim() !== '');
+
+        if (!tieneIngredientes || !tienePasos || !tieneImagenes) {
+            return res.status(400).json({ 
+                status: 'error', 
+                message: 'La receta debe incluir al menos un ingrediente completo, un paso de preparación y una imagen.' 
+            });
+        }
+
+        // 2. Obtener la referencia del archivo actual para su posterior eliminación
+        const oldFileResult = await pool.query(
+            'SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', 
+            [id_receta]
+        );
+        const oldFileName = oldFileResult[0]?.url_archivo_cifrado;
+
+        // 3. Proceso de Re-cifrado
         const aesKey = crypto.randomBytes(16).toString('hex');
         const encryptedData = await encryptContent(contenido, aesKey);
         
         const fileName = `recipe_${id_receta}_${Date.now()}.enc`;
         const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
+        
         await fs.writeFile(vaultPath, JSON.stringify(encryptedData));
 
         const hash = crypto.createHash('sha256').update(encryptedData.ciphertext).digest('hex');
 
+        // 4. Actualización en Base de Datos
         await pool.query(
             `UPDATE receta SET 
             titulo = ?, subtitulo = ?, descripcion = ?, tiempo_preparacion = ?, 
@@ -218,14 +245,22 @@ exports.updateRecipe = async (req, res) => {
             [titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, fileName, hash, id_receta]
         );
 
-        // Actualizar la llave simétrica
         await pool.query(
             `UPDATE clave_receta SET clave_simetrica_cifrada = ? WHERE id_receta = ?`,
             [aesKey, id_receta]
         );
 
-        res.json({ status: 'ok', message: 'Receta actualizada y re-cifrada.' });
+        // 5. Eliminación del archivo anterior en external_vault
+        if (oldFileName) {
+            const oldFilePath = path.join(__dirname, '../../../external_vault', oldFileName);
+            if (await fs.pathExists(oldFilePath)) {
+                await fs.remove(oldFilePath);
+            }
+        }
+
+        res.json({ status: 'ok', message: 'Receta actualizada!!' });
     } catch (error) {
+        console.error("Error en updateRecipe:", error);
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
