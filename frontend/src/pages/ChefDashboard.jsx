@@ -41,7 +41,6 @@ const ChefDashboard = () => {
       api.getCategories()
     ]);
 
-    // MODIFICACIÓN DE SEGURIDAD:
     if (resDash.status === 'ok' && resDash.data && resDash.data.perfil) {
       setData(resDash.data);
       setEditedProfile({
@@ -129,6 +128,11 @@ const ChefDashboard = () => {
   };
 
   // Guardado de receta
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate('/AuthPage');
+  };
+
   const handleSaveRecipe = async () => {
     // 1. Extraemos los datos
     const { titulo, subtitulo, descripcion, id_categoria, tiempo_preparacion, porciones, dificultad, contenido } = newRecipe;
@@ -188,6 +192,15 @@ const ChefDashboard = () => {
 
   return (
     <div className="min-h-screen bg-[#FDF8F1] p-8 font-serif">
+
+      {/* BOTÓN CERRAR SESIÓN */}
+      <button 
+        onClick={handleLogout}
+        className="absolute top-6 right-8 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-bold shadow-md transition-colors z-10"
+      >
+        Cerrar Sesión
+      </button>
+
       {/* HEADER PERFIL */}
       <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-orange-100 mb-10">
         {!isEditingProfile ? (

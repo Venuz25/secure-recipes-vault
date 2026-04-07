@@ -12,6 +12,7 @@ function App() {
         
         <Route path="/login" element={<AuthPage />} />
         <Route path="/registro" element={<AuthPage />} />
+        <Route path="/AuthPage" element={<AuthPage />} />
         <Route path="/ChefDashboard" element={<ChefDashboard />} /> 
         <Route path="/UserDashboard" element={<UserDashboard />} />
         
