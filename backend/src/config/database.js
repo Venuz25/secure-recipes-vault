@@ -99,13 +99,9 @@ async function getDB() {
       -- MODIFICADO: Agregamos 'id_chef' para que el autor también pueda guardar/recuperar su llave
       CREATE TABLE IF NOT EXISTS clave_receta (
         id_clave INTEGER PRIMARY KEY AUTOINCREMENT,
-        id_usuario INTEGER,
-        id_chef INTEGER, 
         id_receta INTEGER,
         clave_simetrica_cifrada TEXT NOT NULL,
         fecha_generacion DATETIME DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY (id_usuario) REFERENCES usuarios(id_usuario) ON DELETE CASCADE ON UPDATE CASCADE,
-        FOREIGN KEY (id_chef) REFERENCES chef(id_chef) ON DELETE CASCADE ON UPDATE CASCADE,
         FOREIGN KEY (id_receta) REFERENCES receta(id_receta) ON DELETE CASCADE ON UPDATE CASCADE
       );
     `);
