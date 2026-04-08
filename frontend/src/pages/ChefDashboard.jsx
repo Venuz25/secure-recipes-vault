@@ -116,14 +116,12 @@ const ChefDashboard = () => {
           dificultad: recipe.dificultad,
           porciones: recipe.porciones,
           tiempo_preparacion: recipe.tiempo_preparacion,
-          // CAMBIO AQUÍ: res.data ahora contiene el objeto completo, 
-          // y el JSON descifrado está dentro de res.data.contenido
-          contenido: res.data.contenido 
+          contenido: res.data.contenido || res.data 
         });
         setShowModal(true);
       }
     } catch (err) {
-      alert("Error al descifrar el contenido. Verifica que tu sesión sea válida.");
+      alert("Error al obtener el secreto de la bóveda.");
     } finally {
       setLoading(false);
     }

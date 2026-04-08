@@ -5,17 +5,11 @@ import hashlib
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 def encrypt_content(data_json):
-    # 1. Generar clave aleatoria de 16 bytes (AES-128)
     key = os.urandom(16)
     aesgcm = AESGCM(key)
-    
-    # 2. Generar nonce de 12 bytes para GCM
     nonce = os.urandom(12)
     
-    # 3. Cifrar el contenido
     ciphertext = aesgcm.encrypt(nonce, data_json.encode('utf-8'), None)
-    
-    # 4. Generar el Hash de integridad SHA-256 del ciphertext
     sha256_hash = hashlib.sha256(ciphertext).hexdigest()
     
     return {
@@ -25,11 +19,17 @@ def encrypt_content(data_json):
         "hash": sha256_hash
     }
 
-def decrypt_content(nonce_hex, ciphertext_hex, key_hex):
+def decrypt_content(nonce_hex, ciphertext_hex, key_hex, hash_esperado):
+    ciphertext = bytes.fromhex(ciphertext_hex)
+    hash_calculado = hashlib.sha256(ciphertext).hexdigest()
+    
+    if hash_calculado != hash_esperado:
+        raise ValueError("El hash del archivo no coincide con el registro oficial.")
+
     key = bytes.fromhex(key_hex)
     nonce = bytes.fromhex(nonce_hex)
-    ciphertext = bytes.fromhex(ciphertext_hex)
     aesgcm = AESGCM(key)
+    
     decrypted_data = aesgcm.decrypt(nonce, ciphertext, None)
     return decrypted_data.decode('utf-8')
 
@@ -41,18 +41,18 @@ if __name__ == "__main__":
         sys.exit(1)
 
     mode = sys.argv[1]
-    
     try:
         if mode == 'encrypt':
-            recipe_data = sys.argv[2] 
-            result = encrypt_content(recipe_data)
+            result = encrypt_content(sys.argv[2])
             sys.stdout.write(json.dumps(result, ensure_ascii=False))
 
         elif mode == 'decrypt':
-            nonce_hex = sys.argv[2]
-            ciphertext_hex = sys.argv[3]
-            key_hex = sys.argv[4]
-            decrypted_str = decrypt_content(nonce_hex, ciphertext_hex, key_hex)
+            nonce = sys.argv[2]
+            ciphertext = sys.argv[3]
+            key = sys.argv[4]
+            expected_hash = sys.argv[5]
+            
+            decrypted_str = decrypt_content(nonce, ciphertext, key, expected_hash)
             sys.stdout.write(decrypted_str)
             
     except Exception as e:

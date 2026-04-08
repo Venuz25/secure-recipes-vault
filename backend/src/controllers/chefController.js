@@ -26,13 +26,19 @@ const encryptContent = (jsonData) => {
 };
 
 // Función para descifrar contenido usando el script de Python
-const decryptContent = (nonce, ciphertext, aesKey) => {
+const decryptContent = (nonce, ciphertext, aesKey, expectedHash) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
-        const python = spawn('python', [scriptPath, 'decrypt', nonce, ciphertext, aesKey]);
         
-        python.stdout.setEncoding('utf8');
-
+        const python = spawn('python', [
+            scriptPath, 
+            'decrypt', 
+            nonce, 
+            ciphertext, 
+            aesKey, 
+            expectedHash 
+        ]);
+        
         let result = "";
         let errorData = "";
 
@@ -40,11 +46,11 @@ const decryptContent = (nonce, ciphertext, aesKey) => {
         python.stderr.on('data', (d) => errorData += d.toString());
 
         python.on('close', (code) => {
-            if (code !== 0) return reject(errorData || "Error desconocido en Python");
+            if (code !== 0) return reject(errorData || "Error en el módulo de seguridad");
             try {
                 resolve(JSON.parse(result.trim()));
             } catch(e) {
-                reject("Error al parsear JSON descifrado: " + result);
+                resolve(result.trim());
             }
         });
     });
@@ -112,47 +118,37 @@ exports.getDecryptedRecipe = async (req, res) => {
   try {
     const { id_receta } = req.params;
 
-    // Traemos los metadatos de la receta y su llave simétrica al mismo tiempo
     const query = `
-      SELECT r.*, c.clave_simetrica_cifrada 
+      SELECT r.url_archivo_cifrado, r.hash_archivo, c.clave_simetrica_cifrada 
       FROM receta r 
       JOIN clave_receta c ON r.id_receta = c.id_receta 
       WHERE r.id_receta = ?
     `;
-    
-    const rows = await pool.query(query, [id_receta]);
+    const [receta] = await pool.query(query, [id_receta]);
 
-    if (!rows || rows.length === 0) {
-      return res.status(404).json({ status: 'error', message: 'Receta o llave no encontrada' });
-    }
-
-    const receta = rows[0];
-    const aesKey = receta.clave_simetrica_cifrada;
-
-    // Localización y lectura del archivo .enc
     const vaultPath = path.join(__dirname, '../../../external_vault', receta.url_archivo_cifrado);
-    
-    if (!await fs.pathExists(vaultPath)) {
-        throw new Error("El archivo de la bóveda no existe o está dañado.");
-    }
-
     const fileRaw = await fs.readFile(vaultPath, 'utf8');
     const { nonce, ciphertext } = JSON.parse(fileRaw);
 
-    // Descifrado usando el módulo de Python
-    const decryptedData = await decryptContent(nonce, ciphertext, aesKey);
+    const decryptedData = await decryptContent(nonce, ciphertext, receta.clave_simetrica_cifrada, receta.hash_archivo);
 
-    res.json({ 
-      status: 'ok', 
-      data: {
-        ...receta,
-        contenido: decryptedData
-      } 
-    });
+    res.json({ status: 'ok', data: decryptedData });
 
   } catch (error) {
-    console.error("❌ ERROR AL DESCIFRAR:", error.message);
-    res.status(500).json({ status: 'error', message: "Error al acceder a los secretos de la receta." });
+    console.error("ERROR AL DESCIFRAR:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (errorMessage.includes("INTEGRITY_ERROR")) {
+        return res.status(403).json({ 
+            status: 'error', 
+            message: "Alerta de Seguridad: El contenido de la receta no coincide con su hash." 
+        });
+    }
+
+    res.status(500).json({ 
+        status: 'error', 
+        message: "No se pudo descifrar la receta. Verifique los permisos o la integridad del archivo." 
+    });
   }
 };
 
