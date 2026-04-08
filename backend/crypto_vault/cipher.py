@@ -1,21 +1,28 @@
-"""
-PROTECTOR DE RECETAS - Cifrado de Recetas
-Este módulo proporciona funciones para cifrar y descifrar recetas utilizando AES-GCM (Authenticated Encryption).
-"""
-
 import sys
 import json
 import os
+import hashlib
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-def encrypt_content(data_json, key_hex):
-    key = bytes.fromhex(key_hex)
+def encrypt_content(data_json):
+    # 1. Generar clave aleatoria de 16 bytes (AES-128)
+    key = os.urandom(16)
     aesgcm = AESGCM(key)
+    
+    # 2. Generar nonce de 12 bytes para GCM
     nonce = os.urandom(12)
+    
+    # 3. Cifrar el contenido
     ciphertext = aesgcm.encrypt(nonce, data_json.encode('utf-8'), None)
+    
+    # 4. Generar el Hash de integridad SHA-256 del ciphertext
+    sha256_hash = hashlib.sha256(ciphertext).hexdigest()
+    
     return {
+        "key": key.hex(),
         "nonce": nonce.hex(),
-        "ciphertext": ciphertext.hex()
+        "ciphertext": ciphertext.hex(),
+        "hash": sha256_hash
     }
 
 def decrypt_content(nonce_hex, ciphertext_hex, key_hex):
@@ -38,8 +45,7 @@ if __name__ == "__main__":
     try:
         if mode == 'encrypt':
             recipe_data = sys.argv[2] 
-            key_hex = sys.argv[3]
-            result = encrypt_content(recipe_data, key_hex)
+            result = encrypt_content(recipe_data)
             sys.stdout.write(json.dumps(result, ensure_ascii=False))
 
         elif mode == 'decrypt':

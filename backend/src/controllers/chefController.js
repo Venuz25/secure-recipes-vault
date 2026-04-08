@@ -6,10 +6,10 @@ const crypto = require('crypto');
 
 // === UTILS PARA CIFRADO AES-128 ===
 // Función para cifrar contenido usando el script de Python
-const encryptContent = (jsonData, aesKey) => {
+const encryptContent = (jsonData) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
-        const python = spawn('python', [scriptPath, 'encrypt', JSON.stringify(jsonData), aesKey]);
+        const python = spawn('python', [scriptPath, 'encrypt', JSON.stringify(jsonData)]);
         
         let result = "";
         let errorData = "";
@@ -112,34 +112,47 @@ exports.getDecryptedRecipe = async (req, res) => {
   try {
     const { id_receta } = req.params;
 
-    // 1. Obtener metadatos y llave simétrica de la BD
-    const recipeRows = await pool.query('SELECT * FROM receta WHERE id_receta = ?', [id_receta]);
-    const keyRows = await pool.query('SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ?', [id_receta]);
+    // Traemos los metadatos de la receta y su llave simétrica al mismo tiempo
+    const query = `
+      SELECT r.*, c.clave_simetrica_cifrada 
+      FROM receta r 
+      JOIN clave_receta c ON r.id_receta = c.id_receta 
+      WHERE r.id_receta = ?
+    `;
+    
+    const rows = await pool.query(query, [id_receta]);
 
-    if (!recipeRows.length) return res.status(404).json({ status: 'error', message: 'Receta no encontrada' });
-    if (!keyRows.length) return res.status(404).json({ status: 'error', message: 'Llave no encontrada' });
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({ status: 'error', message: 'Receta o llave no encontrada' });
+    }
 
-    const receta = recipeRows[0];
-    const aesKey = keyRows[0].clave_simetrica_cifrada;
+    const receta = rows[0];
+    const aesKey = receta.clave_simetrica_cifrada;
 
-    // 2. Leer archivo
+    // Localización y lectura del archivo .enc
     const vaultPath = path.join(__dirname, '../../../external_vault', receta.url_archivo_cifrado);
     
     if (!await fs.pathExists(vaultPath)) {
-        throw new Error("El archivo .enc no existe en la bóveda.");
+        throw new Error("El archivo de la bóveda no existe o está dañado.");
     }
 
     const fileRaw = await fs.readFile(vaultPath, 'utf8');
     const { nonce, ciphertext } = JSON.parse(fileRaw);
 
-    // 3. Usamos la función de ayuda optimizada
+    // Descifrado usando el módulo de Python
     const decryptedData = await decryptContent(nonce, ciphertext, aesKey);
 
-    res.json({ status: 'ok', data: decryptedData });
+    res.json({ 
+      status: 'ok', 
+      data: {
+        ...receta,
+        contenido: decryptedData
+      } 
+    });
 
   } catch (error) {
     console.error("❌ ERROR AL DESCIFRAR:", error.message);
-    res.status(500).json({ status: 'error', message: error.message });
+    res.status(500).json({ status: 'error', message: "Error al acceder a los secretos de la receta." });
   }
 };
 
@@ -152,22 +165,21 @@ exports.uploadRecipe = async (req, res) => {
       id_categoria, contenido 
     } = req.body;
 
-    // 1. Cifrado
-    const aesKey = crypto.randomBytes(16).toString('hex');
-    const encryptedData = await encryptContent(contenido, aesKey);
+    // 1. Cifrado Centralizado en Python
+    const cryptoData = await encryptContent(contenido);
 
-    // 2. Guardado de archivo
+    // 2. Guardado de archivo .enc
     const fileName = `recipe_${Date.now()}.enc`;
     const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
     await fs.ensureDir(path.join(__dirname, '../../../external_vault'));
     
-    // Guardamos el objeto JSON cifrado
-    await fs.writeFile(vaultPath, JSON.stringify(encryptedData));
-
-    const hash = crypto.createHash('sha256').update(encryptedData.ciphertext).digest('hex');
+    // Guardamos el objeto con nonce y ciphertext que devolvió Python
+    await fs.writeFile(vaultPath, JSON.stringify({
+        nonce: cryptoData.nonce,
+        ciphertext: cryptoData.ciphertext
+    }));
 
     // 3. Inserción en la Base de Datos
-    // IMPORTANTE: No uses ${fileName} dentro de la cadena, usa siempre ?
     const sql = `
       INSERT INTO receta 
       (titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, url_archivo_cifrado, hash_archivo, id_chef) 
@@ -177,20 +189,19 @@ exports.uploadRecipe = async (req, res) => {
     const params = [
       titulo, subtitulo, descripcion, 
       tiempo_preparacion, dificultad, porciones, 
-      id_categoria, fileName, hash, id_chef
+      id_categoria, fileName, cryptoData.hash, id_chef
     ];
 
     const result = await pool.query(sql, params);
 
-    // 4. Guardar la llave para el Chef
+    // 4. Guardar la llave generada para el Chef
     await pool.query(
       `INSERT INTO clave_receta (id_receta, id_chef, clave_simetrica_cifrada) VALUES (?, ?, ?)`,
-      [result.insertId, id_chef, aesKey]
+      [result.insertId, id_chef, cryptoData.key]
     );
 
-    res.json({ status: 'ok', message: '¡Receta cifrada y guardada en la bóveda!' });
+    res.json({ status: 'ok', message: '¡Receta cifrada y guardada!' });
   } catch (error) {
-    console.error("ERROR EN UPLOAD:", error);
     res.status(500).json({ status: 'error', message: error.message });
   }
 };
@@ -199,68 +210,46 @@ exports.uploadRecipe = async (req, res) => {
 exports.updateRecipe = async (req, res) => {
     try {
         const { id_receta } = req.params;
-        const { titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, contenido } = req.body;
+        const { titulo, contenido, ...otrosDatos } = req.body;
 
-        // 1. Validación de campos obligatorios en el servidor
-        if (!titulo || !subtitulo || !descripcion || !tiempo_preparacion || !dificultad || !porciones || !id_categoria) {
-            return res.status(400).json({ status: 'error', message: 'Todos los campos básicos son obligatorios.' });
-        }
-
-        // Validación de contenido cifrado mínimo
-        const tieneIngredientes = contenido?.ingredientes?.some(i => i.nombre.trim() !== '' && i.cantidad.trim() !== '');
-        const tienePasos = contenido?.pasos?.some(p => p.trim() !== '');
-        const tieneImagenes = contenido?.imagenes?.some(img => img.trim() !== '');
-
-        if (!tieneIngredientes || !tienePasos || !tieneImagenes) {
-            return res.status(400).json({ 
-                status: 'error', 
-                message: 'La receta debe incluir al menos un ingrediente completo, un paso de preparación y una imagen.' 
-            });
-        }
-
-        // 2. Obtener la referencia del archivo actual para su posterior eliminación
-        const oldFileResult = await pool.query(
-            'SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', 
-            [id_receta]
-        );
+        // 1. Obtener referencia del archivo viejo
+        const oldFileResult = await pool.query('SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', [id_receta]);
         const oldFileName = oldFileResult[0]?.url_archivo_cifrado;
 
-        // 3. Proceso de Re-cifrado
-        const aesKey = crypto.randomBytes(16).toString('hex');
-        const encryptedData = await encryptContent(contenido, aesKey);
+        // 2. Proceso de Re-cifrado Centralizado
+        const cryptoData = await encryptContent(contenido);
         
         const fileName = `recipe_${id_receta}_${Date.now()}.enc`;
         const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
         
-        await fs.writeFile(vaultPath, JSON.stringify(encryptedData));
+        await fs.writeFile(vaultPath, JSON.stringify({
+            nonce: cryptoData.nonce,
+            ciphertext: cryptoData.ciphertext
+        }));
 
-        const hash = crypto.createHash('sha256').update(encryptedData.ciphertext).digest('hex');
-
-        // 4. Actualización en Base de Datos
+        // 3. Actualización Atómica en BD
         await pool.query(
             `UPDATE receta SET 
             titulo = ?, subtitulo = ?, descripcion = ?, tiempo_preparacion = ?, 
             dificultad = ?, porciones = ?, id_categoria = ?, url_archivo_cifrado = ?, hash_archivo = ?
             WHERE id_receta = ?`,
-            [titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, fileName, hash, id_receta]
+            [titulo, otrosDatos.subtitulo, otrosDatos.descripcion, otrosDatos.tiempo_preparacion, 
+             otrosDatos.dificultad, otrosDatos.porciones, otrosDatos.id_categoria, fileName, cryptoData.hash, id_receta]
         );
 
+        // Actualizamos la clave con la nueva generada por Python
         await pool.query(
             `UPDATE clave_receta SET clave_simetrica_cifrada = ? WHERE id_receta = ?`,
-            [aesKey, id_receta]
+            [cryptoData.key, id_receta]
         );
 
-        // 5. Eliminación del archivo anterior en external_vault
+        // 4. Limpieza del archivo anterior
         if (oldFileName) {
-            const oldFilePath = path.join(__dirname, '../../../external_vault', oldFileName);
-            if (await fs.pathExists(oldFilePath)) {
-                await fs.remove(oldFilePath);
-            }
+            await fs.remove(path.join(__dirname, '../../../external_vault', oldFileName));
         }
 
-        res.json({ status: 'ok', message: 'Receta actualizada!!' });
+        res.json({ status: 'ok', message: 'Receta actualizada con nueva llave de seguridad!' });
     } catch (error) {
-        console.error("Error en updateRecipe:", error);
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
@@ -300,7 +289,6 @@ exports.deleteRecipe = async (req, res) => {
         
         if (await fs.pathExists(filePath)) {
             await fs.remove(filePath);
-            console.log(`Archivo eliminado: ${fileName}`);
         } else {
             console.warn(`El archivo ${fileName} no se encontró en la bóveda, pero el registro fue eliminado.`);
         }

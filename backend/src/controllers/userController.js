@@ -54,7 +54,6 @@ exports.registerUser = async (req, res) => {
         const password_hash = await bcrypt.hash(password, 10);
         const token = crypto.randomBytes(32).toString('hex');
 
-        // CORRECCIÓN: Se cambió encrypted_private_key por encrypted_private para coincidir con Python
         await pool.query(
             `INSERT INTO usuarios 
             (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
