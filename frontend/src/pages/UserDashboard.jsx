@@ -325,7 +325,7 @@ const UserDashboard = () => {
               </div>
             ) : (
               recipes.map(r => (
-                <div key={r.id_receta} className="bg-white rounded-[2rem] p-8 shadow-sm border border-stone-50 hover:shadow-xl transition-all duration-300 relative">
+                <div key={r.id_receta} className="bg-white rounded-2rem p-8 shadow-sm border border-stone-50 hover:shadow-xl transition-all duration-300 relative">
                   
                   {/* Botón de favorito (estrella) */}
                   <button 
