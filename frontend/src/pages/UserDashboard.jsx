@@ -10,7 +10,9 @@ const UserDashboard = () => {
   const [filters, setFilters] = useState({ search: '', categoria: '', orden: 'reciente' });
   const [userData, setUserData] = useState(null);  
   const [loading, setLoading] = useState(true);
-  const [favoriteLoading, setFavoriteLoading] = useState({}); // Para evitar clicks múltiples
+  const [favoriteLoading, setFavoriteLoading] = useState({});
+  const [chefDetails, setChefDetails] = useState(null);
+  const [loadingChef, setLoadingChef] = useState(false);
 
   // Obtener el ID 
   const userId = localStorage.getItem('userId');
@@ -72,6 +74,24 @@ const UserDashboard = () => {
     localStorage.removeItem('userRole');
     localStorage.removeItem('user');
     window.location.href = '/AuthPage';
+  };
+
+  const handleOpenPayModal = async (recipe) => {
+    setSelectedChef(recipe);
+    setShowPayModal(true);
+    setLoadingChef(true);
+    setChefDetails(null);
+    
+    try {
+      const res = await api.getPublicChefProfile(recipe.id_chef);
+      if (res.status === 'ok') {
+        setChefDetails(res.data);
+      }
+    } catch (err) {
+      console.error("Error al cargar perfil de la chef:", err);
+    } finally {
+      setLoadingChef(false);
+    }
   };
 
   // Cargar recetas y librería
@@ -346,29 +366,71 @@ const UserDashboard = () => {
         </section>
       </main>
 
-      {/* MODAL DE PAGO */}
+      {/* MODAL DE PAGO ACTUALIZADO */}
       {showPayModal && selectedChef && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full relative shadow-2xl">
+          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full relative shadow-2xl overflow-y-auto max-h-[90vh]">
             <button onClick={() => setShowPayModal(false)} className="absolute top-8 right-8 text-stone-300 hover:text-stone-800">
               <X size={24} />
             </button>
-            <h2 className="text-2xl font-bold text-center mb-2">Suscripción Premium</h2>
-            <p className="text-center text-stone-500 mb-8">Accede a todos los secretos del Chef <span className="font-bold text-stone-800">{selectedChef.nombre_chef}</span></p>
-            
-            <div className="space-y-3 mb-8">
-              {[3, 6, 12].map(m => (
-                <button 
-                  key={m}
-                  onClick={() => handleSimulatedPayment(m, selectedChef.id_chef)}
-                  className="w-full p-4 border-2 border-stone-100 rounded-2xl flex justify-between items-center hover:border-orange-500 hover:bg-orange-50 transition-all"
-                >
-                  <span className="font-bold">{m} Meses</span>
-                  <span className="text-orange-600 font-black">${m === 3 ? 150 : m === 6 ? 250 : 400} MXN</span>
-                </button>
-              ))}
-            </div>
-            <p className="text-[9px] text-center text-stone-300 uppercase tracking-widest">Pago simulado • Sistema académico de criptografía</p>
+
+            {loadingChef ? (
+              <div className="py-20 text-center animate-pulse text-orange-500 font-bold">Consultando a la Chef...</div>
+            ) : chefDetails ? (
+              <>
+                {/* CABECERA DEL PERFIL DE LA CHEF */}
+                <div className="flex flex-col items-center mb-6">
+                  <div className="w-24 h-24 bg-orange-100 rounded-full overflow-hidden border-4 border-orange-50 shadow-md">
+                    <img 
+                      src={chefDetails.foto_url || 'https://via.placeholder.com/150'} 
+                      alt="Chef" 
+                      className="w-full h-full object-cover" 
+                    />
+                  </div>
+                  <h2 className="text-2xl font-bold mt-4 text-stone-800">Chef {chefDetails.nombre}</h2>
+                  <div className="flex gap-1 mt-1 text-yellow-500">
+                    {[...Array(chefDetails.estrellas || 5)].map((_, i) => <Star key={i} size={16} fill="currentColor" />)}
+                  </div>
+                  <p className="text-center text-sm text-stone-500 italic mt-3 px-2 line-clamp-3">
+                    "{chefDetails.descripcion || 'Especialista en secretos culinarios.'}"
+                  </p>
+                  
+                  {/* ESTADÍSTICAS AGREGADAS */}
+                  <div className="flex gap-6 mt-5 py-3 border-y border-stone-50 w-full justify-center">
+                    <div className="text-center">
+                      <p className="text-lg font-black text-orange-600">{chefDetails.total_recetas}</p>
+                      <p className="text-[10px] uppercase font-bold text-stone-400">Recetas</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg font-black text-orange-600">{chefDetails.total_favoritos}</p>
+                      <p className="text-[10px] uppercase font-bold text-stone-400">Favoritos</p>
+                    </div>
+                  </div>
+                </div>
+
+                <h3 className="text-lg font-bold text-center mb-4 text-stone-700">Planes de Acceso</h3>
+                
+                <div className="space-y-3 mb-8">
+                  {[
+                    { m: 3, p: chefDetails.precio_3m },
+                    { m: 6, p: chefDetails.precio_6m },
+                    { m: 12, p: chefDetails.precio_12m }
+                  ].map(plan => (
+                    <button 
+                      key={plan.m}
+                      onClick={() => handleSimulatedPayment(plan.m, selectedChef.id_chef, plan.p)}
+                      className="w-full p-4 border-2 border-stone-100 rounded-2xl flex justify-between items-center hover:border-orange-500 hover:bg-orange-50 transition-all"
+                    >
+                      <span className="font-bold">{plan.m} Meses</span>
+                      <span className="text-orange-600 font-black">${plan.p} MXN</span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <p className="text-center py-10 text-red-400">No pudimos cargar el perfil de la chef.</p>
+            )}
+            <p className="text-[9px] text-center text-stone-300 uppercase tracking-widest">Pago simulado • Bóveda Criptográfica</p>
           </div>
         </div>
       )}

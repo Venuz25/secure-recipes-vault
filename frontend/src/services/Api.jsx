@@ -141,6 +141,36 @@ export const api = {
       body: JSON.stringify(data),
     });
     return await res.json();
-  }
+  },
+
+  // Cancelar suscripción (Contrato)
+  updateChefPrices: (id_chef, prices) => 
+    fetch(`${API_URL}/chef/prices/${id_chef}`, { 
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(prices)
+    }).then(res => res.json()),
+
+  // Cancelar suscripción (Contrato)
+  cancelSubscription: (id_contrato) => 
+      fetch(`${API_URL}/chef/subscription/cancel/${id_contrato}`, { 
+        method: 'PUT' 
+      }).then(res => res.json()),
+
+  // Reactivar suscripción (Contrato)
+  reactivateSubscription: (id_contrato) => 
+      fetch(`${API_URL}/chef/subscription/activate/${id_contrato}`, { 
+        method: 'PUT' 
+      }).then(res => res.json()),
+  
+  // Eliminar contrato de suscripción
+  deleteSubscription: (id_contrato) => 
+      fetch(`${API_URL}/chef/subscription/${id_contrato}`, {
+        method: 'DELETE' 
+      }).then(res => res.json()),
+  
+  // Obtener perfil público de un chef (para suscriptores)
+  getPublicChefProfile: (id_chef) => 
+    fetch(`${API_URL}/chef/public-profile/${id_chef}`).then(res => res.json()),
 
 };

@@ -30,4 +30,20 @@ router.put('/recipe/:id_receta', chefController.updateRecipe);
 // DELETE /api/chef/recipe/:id_receta
 router.delete('/recipe/:id_receta', chefController.deleteRecipe);
 
+// Actualizar precios de suscripción del chef
+// PUT /api/chef/prices/:id_chef
+router.put('/prices/:id_chef', chefController.updateChefPrices);
+
+// Cancelar suscripción de un usuario (solo para el chef)
+// POST /api/chef/subscription/:id_contrato/cancel
+router.put('/subscription/cancel/:id_contrato', chefController.cancelSubscription);
+
+// Reactivar suscripción de un usuario
+// PUT /api/chef/subscription/activate/:id_contrato
+router.put('/subscription/activate/:id_contrato', chefController.reactivateSubscription);
+
+// Eliminar contrato de suscripción
+// DELETE /api/chef/subscription/:id_contrato
+router.delete('/subscription/:id_contrato', chefController.deleteSubscription);
+
 module.exports = router;

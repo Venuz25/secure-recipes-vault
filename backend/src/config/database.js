@@ -42,7 +42,10 @@ async function getDB() {
         estrellas INTEGER DEFAULT 5,
         fecha_registro DATETIME DEFAULT CURRENT_TIMESTAMP,
         confirmado INTEGER DEFAULT 0,
-        token_confirmacion TEXT
+        token_confirmacion TEXT,
+        precio_3m DECIMAL(10,2) DEFAULT 150.00,
+        precio_6m DECIMAL(10,2) DEFAULT 250.00,
+        precio_12m DECIMAL(10,2) DEFAULT 400.00
       );
 
       -- MODIFICADO: Cambiamos 'categoria TEXT' por 'id_categoria INTEGER' para hacerlo relacional

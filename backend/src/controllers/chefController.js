@@ -79,10 +79,11 @@ exports.getChefDashboard = async (req, res) => {
             GROUP BY r.id_receta`, [id_chef]);
 
         const suscriptores = await pool.query(`
-            SELECT u.nombre, u.correo, c.fecha_fin 
+            SELECT c.id_contrato, c.estado, u.nombre, u.correo, c.fecha_fin 
             FROM contrato c 
             JOIN usuarios u ON c.id_usuario = u.id_usuario 
-            WHERE c.id_chef = ? AND c.estado = 'active'`, [id_chef]);
+            WHERE c.id_chef = ? 
+            ORDER BY c.fecha_fin DESC`, [id_chef]);
 
         res.json({ 
             status: 'ok', 
@@ -99,11 +100,11 @@ exports.getChefDashboard = async (req, res) => {
 exports.updateChefProfile = async (req, res) => {
     try {
         const { id_chef } = req.params;
-        const { descripcion, foto_url, estrellas } = req.body;
+        const { descripcion, foto_url, estrellas, precio_3m, precio_6m, precio_12m } = req.body;
 
         await pool.query(
-            `UPDATE chef SET descripcion = ?, foto_url = ?, estrellas = ? WHERE id_chef = ?`,
-            [descripcion, foto_url, estrellas, id_chef]
+            `UPDATE chef SET descripcion = ?, foto_url = ?, estrellas = ?, precio_3m = ?, precio_6m = ?, precio_12m = ? WHERE id_chef = ?`,
+            [descripcion, foto_url, estrellas, precio_3m, precio_6m, precio_12m, id_chef]
         );
 
         res.json({ status: 'ok', message: 'Perfil actualizado' });
@@ -192,8 +193,8 @@ exports.uploadRecipe = async (req, res) => {
 
     // 4. Guardar la llave generada para el Chef
     await pool.query(
-      `INSERT INTO clave_receta (id_receta, id_chef, clave_simetrica_cifrada) VALUES (?, ?, ?)`,
-      [result.insertId, id_chef, cryptoData.key]
+      `INSERT INTO clave_receta (id_receta, clave_simetrica_cifrada) VALUES (?, ?)`,
+      [result.insertId, cryptoData.key]
     );
 
     res.json({ status: 'ok', message: '¡Receta cifrada y guardada!' });
@@ -296,6 +297,58 @@ exports.deleteRecipe = async (req, res) => {
 
     } catch (error) {
         console.error("ERROR AL ELIMINAR:", error.message);
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// Actualizar solo los precios del chef
+exports.updateChefPrices = async (req, res) => {
+    try {
+        const { id_chef } = req.params;
+        const { precio_3m, precio_6m, precio_12m } = req.body;
+        await pool.query(
+            'UPDATE chef SET precio_3m = ?, precio_6m = ?, precio_12m = ? WHERE id_chef = ?',
+            [precio_3m, precio_6m, precio_12m, id_chef]
+        );
+        res.json({ status: 'ok', message: 'Precios actualizados exitosamente' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// Cancelar suscripción (Cambiar estado a 'cancelado')
+exports.cancelSubscription = async (req, res) => {
+    try {
+        const { id_contrato } = req.params;
+        await pool.query('UPDATE contrato SET estado = "cancelado" WHERE id_contrato = ?', [id_contrato]);
+        res.json({ status: 'ok', message: 'Suscripción cancelada' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// Reactivar suscripción (Solo si su estado es 'cancelado')
+exports.reactivateSubscription = async (req, res) => {
+    try {
+        const { id_contrato } = req.params;
+        await pool.query(
+            'UPDATE contrato SET estado = "activo" WHERE id_contrato = ? AND estado = "cancelado"', 
+            [id_contrato]
+        );
+        
+        res.json({ status: 'ok', message: 'Suscripción reactivada' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// Eliminar suscripción (Borrar registro físico)
+exports.deleteSubscription = async (req, res) => {
+    try {
+        const { id_contrato } = req.params;
+        await pool.query('DELETE FROM contrato WHERE id_contrato = ?', [id_contrato]);
+        res.json({ status: 'ok', message: 'Registro de suscripción eliminado' });
+    } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };

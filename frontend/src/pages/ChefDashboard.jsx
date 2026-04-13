@@ -33,34 +33,38 @@ const ChefDashboard = () => {
 
   // --- CARGA DE DATOS ---
   const loadData = async () => {
-  if (!id) return;
-  setLoading(true);
-  try {
-    const [resDash, resCats] = await Promise.all([
-      api.getChefDashboard(id),
-      api.getCategories()
-    ]);
+    if (!id) return;
+    setLoading(true);
+    try {
+      const [resDash, resCats] = await Promise.all([
+        api.getChefDashboard(id),
+        api.getCategories()
+      ]);
 
-    if (resDash.status === 'ok' && resDash.data && resDash.data.perfil) {
-      setData(resDash.data);
-      setEditedProfile({
-        descripcion: resDash.data.perfil.descripcion || '',
-        foto_url: resDash.data.perfil.foto_url || '',
-        estrellas: resDash.data.perfil.estrellas || 5
-      });
-    } else {
-      console.error("Datos de perfil incompletos:", resDash);
-      alert("No se encontró el perfil del Chef. ¿Iniciaste sesión correctamente?");
-      navigate('/login');
+      if (resDash.status === 'ok' && resDash.data && resDash.data.perfil) {
+        setData(resDash.data);
+        
+        setEditedProfile({
+          descripcion: resDash.data.perfil.descripcion || '',
+          foto_url: resDash.data.perfil.foto_url || '',
+          estrellas: resDash.data.perfil.estrellas || 5,
+          precio_3m: resDash.data.perfil.precio_3m || 150,
+          precio_6m: resDash.data.perfil.precio_6m || 250,
+          precio_12m: resDash.data.perfil.precio_12m || 400
+        });
+      } else {
+        console.error("Dades de perfil incompletes:", resDash);
+        alert("No s'ha trobat el perfil del Xef. Revisa la sessió.");
+        navigate('/login');
+      }
+
+      if (resCats.status === 'ok') setCategories(resCats.data);
+    } catch (error) {
+      console.error("Error carregant el dashboard:", error);
+    } finally {
+      setLoading(false);
     }
-
-    if (resCats.status === 'ok') setCategories(resCats.data);
-  } catch (error) {
-    console.error("Error cargando dashboard:", error);
-  } finally {
-    setLoading(false);
-  }
-};
+  };
 
   useEffect(() => { loadData(); }, []);
 
@@ -188,6 +192,35 @@ const ChefDashboard = () => {
     }
   };
 
+  const handleUpdatePrices = async () => {
+    const res = await api.updateChefPrices(id, {
+      precio_3m: data.perfil.precio_3m,
+      precio_6m: data.perfil.precio_6m,
+      precio_12m: data.perfil.precio_12m
+    });
+    if (res.status === 'ok') {
+      alert("Tarifas actualizadas");
+      loadData();
+    }
+  };
+
+  const handleSubscriptionAction = async (id_contrato, action) => {
+    let res;
+    
+    if (action === 'cancel') {
+      if (!window.confirm("¿Seguro que quieres cancelar este contrato? El usuario perderá acceso.")) return;
+      res = await api.cancelSubscription(id_contrato);
+    } else if (action === 'activate') {
+      if (!window.confirm("¿Reactivar este contrato? El usuario recuperará su acceso.")) return;
+      res = await api.reactivateSubscription(id_contrato);
+    } else if (action === 'delete') {
+      if (!window.confirm("¿Seguro que quieres eliminar este contrato permanentemente? Esta acción borra el registro de la base de datos.")) return;
+      res = await api.deleteSubscription(id_contrato);
+    }
+    
+    if (res && res.status === 'ok') loadData();
+  };
+
   if (loading && !data) return <div className="min-h-screen flex items-center justify-center bg-[#FDF8F1] font-serif text-[#D35400] text-2xl animate-pulse">Encendiendo fogones... 🍳</div>;
 
   return (
@@ -273,19 +306,86 @@ const ChefDashboard = () => {
           )}
         </div>
 
-        {/* SUSCRIPTORES */}
-        <div className="bg-white p-6 rounded-3xl border border-orange-50 shadow-sm h-fit">
-          <h2 className="text-xl font-bold text-[#5D4037] mb-6 font-serif">Suscriptores Activos</h2>
-          {data?.suscriptores.length === 0 ? (
-            <p className="text-sm italic text-gray-400 text-center">Sin suscriptores activos.</p>
-          ) : (
-            data?.suscriptores.map((s, i) => (
-              <div key={i} className="mb-3 p-3 bg-orange-50 rounded-xl text-xs border border-orange-100">
-                <p className="font-bold text-[#5D4037]">{s.nombre}</p>
-                <p className="text-orange-700 uppercase font-bold mt-1">Vence: {new Date(s.fecha_fin).toLocaleDateString()}</p>
-              </div>
-            ))
-          )}
+        {/* COLUMNA LATERAL: PRECIOS Y SUSCRIPTORES */}
+        <div className="space-y-8">
+          
+          {/* SECCIÓN DE PRECIOS */}
+          <div className="bg-white p-6 rounded-3xl border border-orange-100 shadow-sm">
+            <h2 className="text-xl font-bold text-[#5D4037] mb-4">Mis Tarifas ($)</h2>
+            <div className="space-y-4">
+              {[3, 6, 12].map(m => (
+                <div key={m} className="flex flex-col gap-1">
+                  <label className="text-[10px] font-bold text-orange-700 uppercase">Suscripción {m} Meses</label>
+                  <input 
+                    type="number" 
+                    className="p-2 border rounded-xl w-full text-sm focus:ring-2 focus:ring-orange-200 outline-none"
+                    value={data?.perfil[`precio_${m}m`] || ''}
+                    onChange={(e) => {
+                      const newData = {...data};
+                      newData.perfil[`precio_${m}m`] = e.target.value;
+                      setData(newData);
+                    }}
+                  />
+                </div>
+              ))}
+              <button 
+                onClick={handleUpdatePrices}
+                className="w-full bg-[#D35400] text-white py-2 rounded-xl font-bold text-sm hover:bg-orange-700 transition-colors mt-2"
+              >
+                Guardar Tarifas
+              </button>
+            </div>
+          </div>
+
+          {/* SECCIÓN DE SUSCRIPTORES */}
+          <div className="bg-white p-6 rounded-3xl border border-orange-50 shadow-sm h-fit">
+            <h2 className="text-xl font-bold text-[#5D4037] mb-6">Suscriptores Activos</h2>
+            {data?.suscriptores.length === 0 ? (
+              <p className="text-sm italic text-gray-400 text-center">Sin suscriptores activos.</p>
+            ) : (
+              data?.suscriptores.map((s, i) => (
+                <div key={i} className="mb-4 p-3 bg-orange-50 rounded-xl border border-orange-100">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-[#5D4037] text-sm">{s.nombre}</p>
+                      <p className="text-[10px] text-gray-500">{s.correo}</p>
+                    </div>
+                    <span className={`text-[9px] px-2 py-0.5 rounded-full font-bold uppercase ${s.estado === 'activo' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                      {s.estado}
+                    </span>
+                  </div>
+                  <p className="text-orange-700 font-bold text-[10px] mt-2">FIN: {new Date(s.fecha_fin).toLocaleDateString()}</p>
+                  
+                  <div className="flex gap-2 mt-3 border-t border-orange-200 pt-2">
+                    {s.estado === 'activo' && (
+                      <button 
+                        onClick={() => handleSubscriptionAction(s.id_contrato, 'cancel')}
+                        className="text-[10px] bg-white border border-orange-200 px-2 py-1 rounded-lg text-orange-600 hover:bg-orange-100"
+                      >
+                        Cancelar
+                      </button>
+                    )}
+
+                    {s.estado === 'cancelado' && (
+                      <button 
+                        onClick={() => handleSubscriptionAction(s.id_contrato, 'activate')}
+                        className="text-[10px] bg-white border border-green-200 px-2 py-1 rounded-lg text-green-600 hover:bg-green-100 font-bold"
+                      >
+                        Activar
+                      </button>
+                    )}
+
+                    <button 
+                      onClick={() => handleSubscriptionAction(s.id_contrato, 'delete')}
+                      className="text-[10px] bg-white border border-red-100 px-2 py-1 rounded-lg text-red-500 hover:bg-red-50"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
