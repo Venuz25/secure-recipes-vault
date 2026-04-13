@@ -83,12 +83,20 @@ const UserDashboard = () => {
     setChefDetails(null);
     
     try {
+      console.log("1. Pidiendo datos del chef ID:", recipe.id_chef);
+      
       const res = await api.getPublicChefProfile(recipe.id_chef);
+      console.log("2. El backend respondió esto:", res);
+      
       if (res.status === 'ok') {
         setChefDetails(res.data);
+      } else {
+        // ESTA LÍNEA ES LA CLAVE: Nos dirá por qué el backend dijo que no.
+        alert("❌ El backend rechazó la petición: " + res.message);
       }
     } catch (err) {
-      console.error("Error al cargar perfil de la chef:", err);
+      console.error("Error de red:", err);
+      alert("❌ Ocurrió un error en la red. Revisa la consola (F12).");
     } finally {
       setLoadingChef(false);
     }
@@ -352,7 +360,7 @@ const UserDashboard = () => {
                       </button>
                     ) : (
                       <button 
-                        onClick={() => { setSelectedChef(r); setShowPayModal(true); }}
+                        onClick={() => handleOpenPayModal(r)} 
                         className="w-full border-2 border-orange-600 text-orange-600 py-3 rounded-2xl font-bold flex items-center justify-center gap-2 hover:bg-orange-50"
                       >
                         <Lock size={18}/> Desbloquear Contenido
@@ -366,10 +374,10 @@ const UserDashboard = () => {
         </section>
       </main>
 
-      {/* MODAL DE PAGO ACTUALIZADO */}
+      {/* MODAL DE PAGO */}
       {showPayModal && selectedChef && (
         <div className="fixed inset-0 bg-stone-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-[3rem] p-10 max-w-md w-full relative shadow-2xl overflow-y-auto max-h-[90vh]">
+          <div className="bg-white rounded-[3rem] p-10 max-w-3xl w-full relative shadow-2xl overflow-y-auto max-h-[90vh]">
             <button onClick={() => setShowPayModal(false)} className="absolute top-8 right-8 text-stone-300 hover:text-stone-800">
               <X size={24} />
             </button>
@@ -430,7 +438,7 @@ const UserDashboard = () => {
             ) : (
               <p className="text-center py-10 text-red-400">No pudimos cargar el perfil de la chef.</p>
             )}
-            <p className="text-[9px] text-center text-stone-300 uppercase tracking-widest">Pago simulado • Bóveda Criptográfica</p>
+            <p className="text-[9px] text-center text-stone-300 uppercase tracking-widest">Bóveda Culinaria</p>
           </div>
         </div>
       )}

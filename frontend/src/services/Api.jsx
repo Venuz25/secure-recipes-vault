@@ -171,6 +171,6 @@ export const api = {
   
   // Obtener perfil público de un chef (para suscriptores)
   getPublicChefProfile: (id_chef) => 
-    fetch(`${API_URL}/chef/public-profile/${id_chef}`).then(res => res.json()),
+    fetch(`${API_URL}/subscriber/chef-profile/${id_chef}`).then(res => res.json())
 
 };

@@ -214,3 +214,44 @@ exports.updateProfile = async (req, res) => {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
+
+// Obtener perfil público detallado de un chef para el suscriptor
+exports.getPublicChefProfile = async (req, res) => {
+    try {
+        const { id_chef } = req.params;
+
+        // 1. Obtenemos al chef
+        const chefResult = await pool.query('SELECT * FROM chef WHERE id_chef = ?', [id_chef]);
+        
+        if (!chefResult || chefResult.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Chef no encontrado en la base de datos' });
+        }
+
+        const chef = chefResult[0];
+
+        // 2. Contamos sus recetas totales
+        const recetasResult = await pool.query('SELECT COUNT(*) as total FROM receta WHERE id_chef = ?', [id_chef]);
+        const total_recetas = recetasResult && recetasResult.length > 0 ? recetasResult[0].total : 0;
+
+        // 3. Contamos el total de favoritos
+        const favoritosResult = await pool.query(`
+            SELECT COUNT(f.id_favorito) as total 
+            FROM favoritos f 
+            JOIN receta r ON f.id_receta = r.id_receta 
+            WHERE r.id_chef = ?`, [id_chef]);
+        const total_favoritos = favoritosResult && favoritosResult.length > 0 ? favoritosResult[0].total : 0;
+
+        res.json({ 
+            status: 'ok', 
+            data: { 
+                ...chef, 
+                total_recetas, 
+                total_favoritos 
+            } 
+        });
+    } catch (error) {
+        console.error("==== ERROR AL CARGAR PERFIL DE CHEF ====");
+        console.error(error);
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
