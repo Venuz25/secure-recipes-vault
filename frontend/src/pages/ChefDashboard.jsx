@@ -162,7 +162,6 @@ const ChefDashboard = () => {
       return;
     }
 
-    // 4. Si todo es válido, subimos al backend para cifrar y guardar
     try {
       const recipeData = { ...newRecipe, id_chef: id };
       
@@ -235,7 +234,7 @@ const ChefDashboard = () => {
       </button>
 
       {/* HEADER PERFIL */}
-      <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-orange-100 mb-10">
+      <div className="max-w-6xl mx-auto bg-white p-8 rounded-3xl shadow-sm border border-orange-100 mb-10 mt-15">
         {!isEditingProfile ? (
           <div className="flex items-center gap-8">
             <div className="w-32 h-32 bg-orange-200 rounded-full overflow-hidden border-4 border-white shadow-md">

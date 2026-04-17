@@ -9,6 +9,8 @@ const crypto = require('crypto');
 const encryptContent = (jsonData) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
+        
+        console.log("\nEjecutando cifrado de datos...\n");
         const python = spawn('python', [scriptPath, 'encrypt', JSON.stringify(jsonData)]);
         
         let result = "";
@@ -19,7 +21,9 @@ const encryptContent = (jsonData) => {
 
         python.on('close', (code) => {
             if (code !== 0) return reject("Error en Python: " + errorData);
-            try { resolve(JSON.parse(result)); }
+            try { 
+                resolve(JSON.parse(result)); 
+            }
             catch(e) { reject("Error al parsear JSON de Python: " + result); }
         });
     });
@@ -30,6 +34,7 @@ const decryptContent = (nonce, ciphertext, aesKey, expectedHash) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
         
+        console.log("\nEjecutando descifrado de datos...\n");
         const python = spawn('python', [
             scriptPath, 
             'decrypt', 
@@ -127,13 +132,18 @@ exports.getDecryptedRecipe = async (req, res) => {
     `;
     const [receta] = await pool.query(query, [id_receta]);
 
+    console.log("\n\n====== DESCIFRADO DE RECETA ======");
+    console.log("Receta obtenida para descifrado:", receta);
+
     const vaultPath = path.join(__dirname, '../../../external_vault', receta.url_archivo_cifrado);
     const fileRaw = await fs.readFile(vaultPath, 'utf8');
     const { nonce, ciphertext } = JSON.parse(fileRaw);
 
+    console.log("Datos leídos del archivo cifrado:", { nonce, ciphertext });
     const decryptedData = await decryptContent(nonce, ciphertext, receta.clave_simetrica_cifrada, receta.hash_archivo);
 
     res.json({ status: 'ok', data: decryptedData });
+    console.log("Receta descifrada exitosamente:", decryptedData);
 
   } catch (error) {
     console.error("ERROR AL DESCIFRAR:", error);
@@ -142,7 +152,7 @@ exports.getDecryptedRecipe = async (req, res) => {
     if (errorMessage.includes("INTEGRITY_ERROR")) {
         return res.status(403).json({ 
             status: 'error', 
-            message: "Alerta de Seguridad: El contenido de la receta no coincide con su hash." 
+            message: "Alerta de Seguridad!!\nEl contenido de la receta no coincide con su hash." 
         });
     }
 
@@ -150,6 +160,7 @@ exports.getDecryptedRecipe = async (req, res) => {
         status: 'error', 
         message: "No se pudo descifrar la receta. Verifique los permisos o la integridad del archivo." 
     });
+    console.error("Detalles del error de descifrado:", errorMessage);
   }
 };
 
@@ -163,6 +174,10 @@ exports.uploadRecipe = async (req, res) => {
     } = req.body;
 
     // 1. Cifrado Centralizado en Python
+    console.log("\n\n====== CIFRADO DE NUEVA RECETA ======");
+    console.log("Cifrando receta:", { titulo});
+
+    console.log("Contenido a cifrar:", contenido);
     const cryptoData = await encryptContent(contenido);
 
     // 2. Guardado de archivo .enc
@@ -175,6 +190,8 @@ exports.uploadRecipe = async (req, res) => {
         nonce: cryptoData.nonce,
         ciphertext: cryptoData.ciphertext
     }));
+    console.log("Archivo cifrado guardado en:", vaultPath);
+    console.log("Datos del cifrado:", { cryptoData });
 
     // 3. Inserción en la Base de Datos
     const sql = `
@@ -209,11 +226,12 @@ exports.updateRecipe = async (req, res) => {
         const { id_receta } = req.params;
         const { titulo, contenido, ...otrosDatos } = req.body;
 
-        // 1. Obtener referencia del archivo viejo
         const oldFileResult = await pool.query('SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', [id_receta]);
         const oldFileName = oldFileResult[0]?.url_archivo_cifrado;
 
-        // 2. Proceso de Re-cifrado Centralizado
+        console.log("\n\n====== ACTUALIZACIÓN DE RECETA ======");
+        console.log("Actualizando receta:", id_receta);
+        console.log("Nuevo contenido:", req.body);
         const cryptoData = await encryptContent(contenido);
         
         const fileName = `recipe_${id_receta}_${Date.now()}.enc`;
@@ -223,6 +241,9 @@ exports.updateRecipe = async (req, res) => {
             nonce: cryptoData.nonce,
             ciphertext: cryptoData.ciphertext
         }));
+
+        console.log("Archivo re-cifrado guardado en:", vaultPath);
+        console.log("Datos del nuevo cifrado:", { cryptoData });
 
         // 3. Actualización Atómica en BD
         await pool.query(

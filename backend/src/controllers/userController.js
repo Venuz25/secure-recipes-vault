@@ -15,10 +15,12 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// --- HELPER: GENERAR CLAVES RSA (PYTHON) ---
+// --- GENERAR CLAVES RSA (PYTHON) ---
 const callPythonKeys = (password) => {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
+
+    console.log("\nGenerando claves RSA...\n");
     const python = spawn('python', [scriptPath, 'generate', password]); 
 
     let result = "";
@@ -29,7 +31,9 @@ const callPythonKeys = (password) => {
 
     python.on('close', (code) => {
       if (code !== 0) return reject(`Error en Python: ${errorData}`);
-      try { resolve(JSON.parse(result)); } 
+      try { 
+        resolve(JSON.parse(result)); 
+      } 
       catch (e) { reject(`Error parseando JSON: ${result}`); }
     });
   });
@@ -50,9 +54,13 @@ exports.registerUser = async (req, res) => {
             return res.status(400).json({ status: 'error', message: 'Este correo ya está registrado.' });
         }
 
+        console.log("\n\n ======== REGISTRO SUBSCRIPTOR ========");
+        console.log("Datos recibidos para usuario:", { nombre, correo, password });
+
         const cryptoData = await callPythonKeys(password);
-        const password_hash = await bcrypt.hash(password, 10);
         const token = crypto.randomBytes(32).toString('hex');
+
+        console.log("Datos criptográficos generados:", { cryptoData, token });
 
         await pool.query(
             `INSERT INTO usuarios 
@@ -61,7 +69,7 @@ exports.registerUser = async (req, res) => {
             [
                 nombre, 
                 correo, 
-                password_hash, 
+                cryptoData.password_hash, 
                 cryptoData.public_key, 
                 cryptoData.encrypted_private_key, 
                 cryptoData.salt, 
@@ -108,8 +116,6 @@ exports.registerUser = async (req, res) => {
 exports.registerChef = async (req, res) => {
   try {
     const { nombre, correo, password } = req.body;
-    console.log("Datos recibidos:", { nombre, correo });
-
     const checkUser = await pool.query('SELECT correo FROM usuarios WHERE correo = ?', [correo]);
     const checkChef = await pool.query('SELECT correo FROM chef WHERE correo = ?', [correo]);
     
@@ -117,15 +123,19 @@ exports.registerChef = async (req, res) => {
       return res.status(400).json({ status: 'error', message: 'Este correo ya está registrado.' });
     }
 
+    console.log("\n\n ======== REGISTRO CHEF ========");
+    console.log("Datos recibidos para chef:", { nombre, correo, password });
+
     const cryptoData = await callPythonKeys(password);
-    const password_hash = await bcrypt.hash(password, 10);
     const token = crypto.randomBytes(32).toString('hex');
+
+    console.log("Datos criptográficos generados:", {cryptoData, token });
 
     await pool.query(
       `INSERT INTO chef 
       (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [nombre, correo, password_hash, cryptoData.public_key, cryptoData.encrypted_private_key, cryptoData.salt, cryptoData.nonce, token]
+      [nombre, correo, cryptoData.password_hash, cryptoData.public_key, cryptoData.encrypted_private_key, cryptoData.salt, cryptoData.nonce, token]
     );
 
     const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}?tipo=chef`;
@@ -166,33 +176,45 @@ exports.loginUser = async (req, res) => {
       rows = await pool.query('SELECT * FROM chef WHERE correo = ?', [correo]);
       if (rows && rows.length > 0) rol = 'chef';
     }
-
+    
     if (!rows || rows.length === 0) {
       return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
     }
 
     const persona = rows[0];
 
-    // 3. Verificar contraseña Hash
-    const match = await bcrypt.compare(password, persona.contraseña_hash);
-    if (!match) return res.status(401).json({ status: 'error', message: 'Credenciales inválidas' });
-
-    // 4. Verificar si está confirmado
+    // Verificar si está confirmado
     if (persona.confirmado === 0) {
       return res.status(403).json({ status: 'error', message: 'Por favor, confirma tu correo electrónico.' });
     }
 
-    // 5. Simular descifrado de llave privada (Criptografía Híbrida)
+    // Descifrado de llave privada (Criptografía Híbrida)
+    console.log("\n\n ======== LOGIN DE USUARIO ========");
+    console.log("Intentando login para:", { correo, rol });
+
+    console.log("Verificando Hash y descifrando llave privada...");
     const cryptoCheck = await new Promise((resolve) => {
       const python = spawn('python', [
         path.join(__dirname, '../../crypto_vault/keys.py'),
-        'decrypt', password, persona.clave_privada_cifrada, persona.crypto_salt, persona.crypto_nonce
+        'decrypt', 
+        password, 
+        persona.clave_privada_cifrada, 
+        persona.crypto_salt, 
+        persona.crypto_nonce,
+        persona.contraseña_hash
       ]);
+      
       let result = "";
       python.stdout.on('data', (d) => result += d.toString());
       python.on('close', () => {
-          try { resolve(JSON.parse(result)); } 
-          catch(e) { resolve({status: 'error'}); }
+          try { 
+            resolve(JSON.parse(result)); 
+            console.log("Resultado del proceso de verificación y descifrado:\n", result);
+          } 
+          catch(e) { 
+            console.error("Error parseando Python:", result);
+            resolve({status: 'error'}); 
+          }
       });
     });
 

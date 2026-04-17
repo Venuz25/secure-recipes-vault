@@ -1,7 +1,14 @@
+"""
+CIFRADOR Y DESCIFRADOR DE CONTENIDO PARA RECETAS - Cifrado AES-GCM
+Este módulo proporciona funciones para cifrar y descifrar el contenido de las recetas utilizando AES-GCM. 
+Además, se incluye un hash SHA3-256 del contenido cifrado para verificar la integridad de los datos al descifrarlos.
+"""
+
 import sys
 import json
 import os
 import hashlib
+import base64
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 def encrypt_content(data_json):
@@ -10,24 +17,25 @@ def encrypt_content(data_json):
     nonce = os.urandom(12)
     
     ciphertext = aesgcm.encrypt(nonce, data_json.encode('utf-8'), None)
-    sha256_hash = hashlib.sha256(ciphertext).hexdigest()
+    sha3_hash = hashlib.sha3_256(ciphertext).hexdigest()
     
     return {
-        "key": key.hex(),
-        "nonce": nonce.hex(),
-        "ciphertext": ciphertext.hex(),
-        "hash": sha256_hash
+        "key": base64.b64encode(key).decode('utf-8'),
+        "nonce": base64.b64encode(nonce).decode('utf-8'),
+        "ciphertext": base64.b64encode(ciphertext).decode('utf-8'),
+        "hash": sha3_hash
     }
 
-def decrypt_content(nonce_hex, ciphertext_hex, key_hex, hash_esperado):
-    ciphertext = bytes.fromhex(ciphertext_hex)
-    hash_calculado = hashlib.sha256(ciphertext).hexdigest()
+def decrypt_content(nonce_b64, ciphertext_b64, key_b64, hash_esperado):
+    ciphertext = base64.b64decode(ciphertext_b64)
+    
+    hash_calculado = hashlib.sha3_256(ciphertext).hexdigest()
     
     if hash_calculado != hash_esperado:
-        raise ValueError("El hash del archivo no coincide con el registro oficial.")
+        raise ValueError("INTEGRITY_ERROR: El hash del archivo no coincide con el registro oficial.")
 
-    key = bytes.fromhex(key_hex)
-    nonce = bytes.fromhex(nonce_hex)
+    key = base64.b64decode(key_b64)
+    nonce = base64.b64decode(nonce_b64)
     aesgcm = AESGCM(key)
     
     decrypted_data = aesgcm.decrypt(nonce, ciphertext, None)

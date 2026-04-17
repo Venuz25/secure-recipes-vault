@@ -48,7 +48,6 @@ async function getDB() {
         precio_12m DECIMAL(10,2) DEFAULT 400.00
       );
 
-      -- MODIFICADO: Cambiamos 'categoria TEXT' por 'id_categoria INTEGER' para hacerlo relacional
       CREATE TABLE IF NOT EXISTS receta (
         id_receta INTEGER PRIMARY KEY AUTOINCREMENT,
         titulo TEXT NOT NULL,
@@ -99,7 +98,6 @@ async function getDB() {
         FOREIGN KEY (id_chef) REFERENCES chef(id_chef) ON DELETE CASCADE ON UPDATE CASCADE
       );
 
-      -- MODIFICADO: Agregamos 'id_chef' para que el autor también pueda guardar/recuperar su llave
       CREATE TABLE IF NOT EXISTS clave_receta (
         id_clave INTEGER PRIMARY KEY AUTOINCREMENT,
         id_receta INTEGER,
