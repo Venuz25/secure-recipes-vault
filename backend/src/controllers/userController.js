@@ -1,11 +1,10 @@
 const pool = require('../config/database');
-const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 const { spawn } = require('child_process');
 const path = require('path');
 
-// --- CONFIGURACIÓN DE CORREO ---
+// CONFIGURACIÓN DE CORREO
 const transporter = nodemailer.createTransport({
   host: "sandbox.smtp.mailtrap.io",
   port: 2525,
@@ -15,7 +14,9 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// --- GENERAR CLAVES RSA (PYTHON) ---
+
+// UTILIDADES CRIPTOGRÁFICAS
+// Genera el par de claves usando el script de Python
 const callPythonKeys = (password) => {
   return new Promise((resolve, reject) => {
     const scriptPath = path.join(__dirname, '../../crypto_vault/keys.py');
@@ -39,8 +40,9 @@ const callPythonKeys = (password) => {
   });
 };
 
-// --- CONTROLADORES DE REGISTRO ---
-// REGISTRO USUARIO: Crea usuario, genera token de confirmación y envía correo
+
+// REGISTRO DE CUENTAS
+// Registra a un suscriptor normal
 exports.registerUser = async (req, res) => {
     try {
         const { nombre, correo, password } = req.body;
@@ -66,20 +68,12 @@ exports.registerUser = async (req, res) => {
             `INSERT INTO usuarios 
             (nombre, correo, contraseña_hash, clave_publica, clave_privada_cifrada, crypto_salt, crypto_nonce, token_confirmacion) 
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-                nombre, 
-                correo, 
-                cryptoData.password_hash, 
-                cryptoData.public_key, 
-                cryptoData.encrypted_private_key, 
-                cryptoData.salt, 
-                cryptoData.nonce,
-                token
-            ]
+            [nombre, correo, cryptoData.password_hash, cryptoData.public_key, cryptoData.encrypted_private_key, cryptoData.salt, cryptoData.nonce, token]
         );
 
         const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}`;
-        const mailOptions = {
+        
+        await transporter.sendMail({
             from: '"Chef Mexicana 🌶️" <boveda@recetas.com>',
             to: correo,
             subject: "🍲 Confirma tu suscripción a la Bóveda Culinaria",
@@ -96,9 +90,7 @@ exports.registerUser = async (req, res) => {
                     </div>
                 </div>
             `
-        };
-
-        await transporter.sendMail(mailOptions);
+        });
 
         res.json({
             status: 'ok',
@@ -112,10 +104,11 @@ exports.registerUser = async (req, res) => {
     }
 };
 
-// REGISTRO CHEF: Similar a usuario pero inserta en la tabla chef
+// Registra a un creador de contenido (Chef)
 exports.registerChef = async (req, res) => {
   try {
     const { nombre, correo, password } = req.body;
+    
     const checkUser = await pool.query('SELECT correo FROM usuarios WHERE correo = ?', [correo]);
     const checkChef = await pool.query('SELECT correo FROM chef WHERE correo = ?', [correo]);
     
@@ -129,7 +122,7 @@ exports.registerChef = async (req, res) => {
     const cryptoData = await callPythonKeys(password);
     const token = crypto.randomBytes(32).toString('hex');
 
-    console.log("Datos criptográficos generados:", {cryptoData, token });
+    console.log("Datos criptográficos generados:", { cryptoData, token });
 
     await pool.query(
       `INSERT INTO chef 
@@ -139,6 +132,7 @@ exports.registerChef = async (req, res) => {
     );
 
     const confirmUrl = `http://localhost:3000/api/users/confirmar/${token}?tipo=chef`;
+    
     await transporter.sendMail({
       from: '"Bóveda Culinaria 🌶️" <chef@recetas.com>',
       to: correo,
@@ -161,17 +155,16 @@ exports.registerChef = async (req, res) => {
   }
 };
 
-// --- CONTROLADOR DE LOGIN ---
-// LOGIN: Verifica credenciales y desbloquea llave privada
+// AUTENTICACIÓN
+// Verifica credenciales y extrae la llave privada
 exports.loginUser = async (req, res) => {
   try {
     const { correo, password } = req.body;
     let rol = 'usuario';
     
-    // 1. Buscar en usuarios
+    // Buscar en ambas tablas
     let rows = await pool.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
     
-    // 2. Si no está, buscar en chef
     if (!rows || rows.length === 0) {
       rows = await pool.query('SELECT * FROM chef WHERE correo = ?', [correo]);
       if (rows && rows.length > 0) rol = 'chef';
@@ -183,16 +176,14 @@ exports.loginUser = async (req, res) => {
 
     const persona = rows[0];
 
-    // Verificar si está confirmado
     if (persona.confirmado === 0) {
       return res.status(403).json({ status: 'error', message: 'Por favor, confirma tu correo electrónico.' });
     }
 
-    // Descifrado de llave privada (Criptografía Híbrida)
     console.log("\n\n ======== LOGIN DE USUARIO ========");
     console.log("Intentando login para:", { correo, rol });
-
     console.log("Verificando Hash y descifrando llave privada...");
+    
     const cryptoCheck = await new Promise((resolve) => {
       const python = spawn('python', [
         path.join(__dirname, '../../crypto_vault/keys.py'),
@@ -222,7 +213,6 @@ exports.loginUser = async (req, res) => {
       return res.status(401).json({ status: 'error', message: 'Error de integridad en las llaves de seguridad' });
     }
 
-    // Determinamos cuál es el ID real (id_chef o id_usuario)
     const idFinal = (rol === 'chef') ? persona.id_chef : persona.id_usuario;
 
     res.json({ 
@@ -240,7 +230,8 @@ exports.loginUser = async (req, res) => {
   }
 };
 
-// CONFIRMACIÓN: Corregida para obtener el ID correctamente tras el UPDATE
+// VALIDACIÓN DE CORREO
+// Confirma el token enviado por correo
 exports.confirmEmail = async (req, res) => {
   try {
     const { token } = req.params;
@@ -274,7 +265,8 @@ exports.confirmEmail = async (req, res) => {
   }
 };
 
-// --- RUTAS DE TEST ---
+// RUTAS DE PRUEBA / DESARROLL
+// Obtener todos los usuarios (sin información sensible)
 exports.getAllUsers = async (req, res) => {
   try {
     const rows = await pool.query('SELECT id_usuario, nombre, correo, fecha_registro FROM usuarios');
@@ -284,6 +276,7 @@ exports.getAllUsers = async (req, res) => {
   }
 };
 
+// Obtener un usuario por ID (sin información sensible)
 exports.getUserById = async (req, res) => {
   try {
     const { id } = req.params;

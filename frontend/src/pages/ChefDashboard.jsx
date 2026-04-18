@@ -7,37 +7,45 @@ const ChefDashboard = () => {
   const navigate = useNavigate();
   const id = localStorage.getItem('userId');
 
-  // --- ESTADOS ---
+  // ESTADOS (STATES)
+  // Datos Generales
   const [data, setData] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  // UI y Modales
   const [showModal, setShowModal] = useState(false);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
-  const [editingId, setEditingId] = useState(null);
-  const [loading, setLoading] = useState(true);
+  
+  // Filtros de Búsqueda
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState('');
   const [filterDifficulty, setFilterDifficulty] = useState('');
 
-  // Estado inicial para limpiar el formulario
+  // Formularios
   const initialRecipeState = {
     titulo: '', subtitulo: '', descripcion: '', id_categoria: '',
     dificultad: 'Media', porciones: 4, tiempo_preparacion: '',
     contenido: { ingredientes: [{ nombre: '', cantidad: '' }], pasos: [''], imagenes: [''] }
   };
-
   const [newRecipe, setNewRecipe] = useState(initialRecipeState);
-  const [editedProfile, setEditedProfile] = useState({ descripcion: '', foto_url: '', estrellas: 5 });
+  const [editingId, setEditingId] = useState(null);
+  
+  const [editedProfile, setEditedProfile] = useState({ 
+    descripcion: '', foto_url: '', estrellas: 5, precio_3m: 150, precio_6m: 250, precio_12m: 400 
+  });
 
-  // --- REDIRECCIÓN SI NO HAY SESIÓN ---
+  // EFECTOS (USE EFFECTS)
+  // Verificación de sesión y carga inicial
   useEffect(() => {
     if (!id || id === "undefined") {
       navigate('/login');
+      return;
     }
+    loadData();
   }, [id, navigate]);
 
-  // --- CARGA DE DATOS ---
   const loadData = async () => {
-    if (!id) return;
     setLoading(true);
     try {
       const [resDash, resCats] = await Promise.all([
@@ -45,9 +53,8 @@ const ChefDashboard = () => {
         api.getCategories()
       ]);
 
-      if (resDash.status === 'ok' && resDash.data && resDash.data.perfil) {
+      if (resDash.status === 'ok' && resDash.data?.perfil) {
         setData(resDash.data);
-        
         setEditedProfile({
           descripcion: resDash.data.perfil.descripcion || '',
           foto_url: resDash.data.perfil.foto_url || '',
@@ -57,22 +64,19 @@ const ChefDashboard = () => {
           precio_12m: resDash.data.perfil.precio_12m || 400
         });
       } else {
-        console.error("Dades de perfil incompletes:", resDash);
-        alert("No s'ha trobat el perfil del Xef. Revisa la sessió.");
+        alert("Error al cargar tu perfil. Inicia sesión nuevamente.");
         navigate('/login');
       }
 
       if (resCats.status === 'ok') setCategories(resCats.data);
     } catch (error) {
-      console.error("Error carregant el dashboard:", error);
+      console.error("Error cargando el dashboard del chef:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { loadData(); }, []);
-
-  // --- COMPONENTE DE ESTRELLAS ---
+  // COMPONENTES AUXILIARES
   const StarRating = ({ rating, setRating, editable = false }) => (
     <div className="flex gap-1">
       {[1, 2, 3, 4, 5].map((star) => (
@@ -87,7 +91,7 @@ const ChefDashboard = () => {
     </div>
   );
 
-  // --- GESTIÓN DINÁMICA ---
+  // HANDLERS: Formulario Dinámico
   const updateIngredient = (index, field, value) => {
     const newIngs = [...newRecipe.contenido.ingredientes];
     newIngs[index][field] = value;
@@ -103,13 +107,17 @@ const ChefDashboard = () => {
   const updateImage = (index, value) => {
     const newImages = [...newRecipe.contenido.imagenes];
     newImages[index] = value;
-    setNewRecipe({
-      ...newRecipe,
-      contenido: { ...newRecipe.contenido, imagenes: newImages }
-    });
+    setNewRecipe({ ...newRecipe, contenido: { ...newRecipe.contenido, imagenes: newImages } });
   };
 
-  // --- ACCIONES ---
+  // HANDLERS: Acciones del Chef
+  const handleLogout = () => {
+    localStorage.clear();
+    navigate('/AuthPage');
+  };
+
+  // GESTIÓN DE RECETAS
+  // Editar receta: Obtener contenido descifrado y abrir modal
   const handleEditClick = async (recipe) => {
     setLoading(true);
     try {
@@ -117,12 +125,9 @@ const ChefDashboard = () => {
       if (res.status === 'ok') {
         setEditingId(recipe.id_receta);
         setNewRecipe({
-          titulo: recipe.titulo,
-          subtitulo: recipe.subtitulo,
-          descripcion: recipe.descripcion,
-          id_categoria: recipe.id_categoria,
-          dificultad: recipe.dificultad,
-          porciones: recipe.porciones,
+          titulo: recipe.titulo, subtitulo: recipe.subtitulo,
+          descripcion: recipe.descripcion, id_categoria: recipe.id_categoria,
+          dificultad: recipe.dificultad, porciones: recipe.porciones,
           tiempo_preparacion: recipe.tiempo_preparacion,
           contenido: res.data.contenido || res.data 
         });
@@ -135,40 +140,24 @@ const ChefDashboard = () => {
     }
   };
 
-  // Guardado de receta
-  const handleLogout = () => {
-    localStorage.clear();
-    navigate('/AuthPage');
-  };
-
+  // Guardar receta (nueva o editada)
   const handleSaveRecipe = async () => {
-    // 1. Extraemos los datos
     const { titulo, subtitulo, descripcion, id_categoria, tiempo_preparacion, porciones, dificultad, contenido } = newRecipe;
 
-    // 2. Validación de campos de texto básicos
     if (!titulo.trim() || !subtitulo.trim() || !descripcion.trim() || !id_categoria || !tiempo_preparacion.trim() || !porciones || !dificultad) {
-      alert("¡Cuidado chef! Todos los campos de texto deben estar completos para sazonar tu receta.");
-      return;
+      return alert("¡Cuidado chef! Todos los campos de texto deben estar completos para sazonar tu receta.");
     }
 
-    // 3. Validación de contenido cifrado
-    // Verificamos que al menos un ingrediente tenga nombre y cantidad
     const tieneIngrediente = contenido.ingredientes.some(ing => ing.nombre.trim() !== '' && ing.cantidad.trim() !== '');
-    
-    // Verificamos que al menos un paso no esté vacío
     const tienePaso = contenido.pasos.some(paso => paso.trim() !== '');
-    
-    // Verificamos que al menos una imagen tenga una URL
     const tieneImagen = contenido.imagenes.some(img => img.trim() !== '');
 
     if (!tieneIngrediente || !tienePaso || !tieneImagen) {
-      alert("Algo falta en tu receta... como podra el suscriptor disfrutar de tu secreto si no hay ingredientes, pasos o imágenes?");
-      return;
+      return alert("Algo falta en tu receta... ¿Cómo podrá el suscriptor disfrutar de tu secreto sin ingredientes, pasos o imágenes?");
     }
 
     try {
       const recipeData = { ...newRecipe, id_chef: id };
-      
       const res = editingId 
         ? await api.updateRecipe(editingId, recipeData)
         : await api.uploadRecipe(recipeData);
@@ -195,18 +184,26 @@ const ChefDashboard = () => {
     }
   };
 
-  const handleUpdatePrices = async () => {
-    const res = await api.updateChefPrices(id, {
-      precio_3m: data.perfil.precio_3m,
-      precio_6m: data.perfil.precio_6m,
-      precio_12m: data.perfil.precio_12m
-    });
-    if (res.status === 'ok') {
-      alert("Tarifas actualizadas");
-      loadData();
+  // GESTIÓN DE PRECIOS
+  const handleSavePrices = async () => {
+    const precios = {
+      precio_3m: data?.perfil?.precio_3m || 150,
+      precio_6m: data?.perfil?.precio_6m || 250,
+      precio_12m: data?.perfil?.precio_12m || 400
+    };
+
+    try {
+      const res = await api.updateChefPrices(id, precios);
+      if (res.status === 'ok') {
+        alert('Precios actualizados correctamente.');
+        loadData(); 
+      }
+    } catch (error) {
+      alert('Error al actualizar los precios.');
     }
   };
 
+  // GESTIÓN DE SUSCRIPTORES
   const handleSubscriptionAction = async (id_contrato, action) => {
     let res;
     
@@ -221,14 +218,13 @@ const ChefDashboard = () => {
       res = await api.deleteSubscription(id_contrato);
     }
     
-    if (res && res.status === 'ok') loadData();
+    if (res?.status === 'ok') loadData();
   };
 
-  // --- LÓGICA DE FILTRADO DE RECETAS ---
+  // DATOS DERIVADOS (Filtros en UI)
   const filteredRecipes = data?.recetas?.filter(r => {
     const matchesSearch = r.titulo.toLowerCase().includes(searchTerm.toLowerCase()) || 
                           (r.subtitulo && r.subtitulo.toLowerCase().includes(searchTerm.toLowerCase()));
-    
     const matchesCategory = filterCategory === '' || r.id_categoria?.toString() === filterCategory;
     const matchesDifficulty = filterDifficulty === '' || r.dificultad === filterDifficulty;
     
@@ -241,7 +237,6 @@ const ChefDashboard = () => {
     <div className="relative min-h-screen font-serif bg-[#ffffff]">      
       <div className="absolute inset-0 z-0 opacity-15 bg-cover bg-center bg-fixed" style={{ backgroundImage: `url(${fondoCulinario})` }}/>
       <div className="relative z-10 p-8 min-h-screen">
-        {/* BOTÓN CERRAR SESIÓN */}
         <button 
           onClick={handleLogout}
           className="absolute top-6 right-8 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-xl font-bold shadow-md transition-colors z-10"
@@ -380,7 +375,7 @@ const ChefDashboard = () => {
                   </div>
                 ))}
                 <button 
-                  onClick={handleUpdatePrices}
+                  onClick={handleSavePrices}
                   className="w-full bg-[#D35400] text-white py-2 rounded-xl font-bold text-sm hover:bg-orange-700 transition-colors mt-2"
                 >
                   Guardar Tarifas

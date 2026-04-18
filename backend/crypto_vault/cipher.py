@@ -28,11 +28,10 @@ def encrypt_content(data_json):
 
 def decrypt_content(nonce_b64, ciphertext_b64, key_b64, hash_esperado):
     ciphertext = base64.b64decode(ciphertext_b64)
-    
     hash_calculado = hashlib.sha3_256(ciphertext).hexdigest()
     
-    if hash_calculado != hash_esperado:
-        raise ValueError("INTEGRITY_ERROR: El hash del archivo no coincide con el registro oficial.")
+    if hash_esperado != "NO_HASH" and hash_calculado != hash_esperado:
+        raise ValueError(f"INTEGRITY_ERROR: El hash del archivo no coincide con el registro oficial.")
 
     key = base64.b64decode(key_b64)
     nonce = base64.b64decode(nonce_b64)

@@ -4,11 +4,12 @@ const path = require('path');
 const fs = require('fs-extra');
 const { spawn } = require('child_process');
 
-// Descifrado de la receta
-const decryptRecipeProcess = (nonce, ciphertext, aesKey) => {
+// UTILS: Criptografía
+// Descifrado de la receta usando Python
+const decryptRecipeProcess = (nonce, ciphertext, aesKey, hash) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
-        const python = spawn('python', [scriptPath, 'decrypt', nonce, ciphertext, aesKey]);
+        const python = spawn('python', [scriptPath, 'decrypt', nonce, ciphertext, aesKey, hash]);
         
         python.stdout.setEncoding('utf8');
         let result = "";
@@ -24,6 +25,7 @@ const decryptRecipeProcess = (nonce, ciphertext, aesKey) => {
     });
 };
 
+// EXPLORACIÓN Y DESCUBRIMIENTO
 // Buscador de recetas con filtros avanzados
 exports.exploreRecipes = async (req, res) => {
     try {
@@ -66,155 +68,6 @@ exports.exploreRecipes = async (req, res) => {
     }
 };
 
-// Simulación de pasarela de pago y creación de contrato
-exports.subscribe = async (req, res) => {
-    try {
-        const { id_usuario, id_chef, periodo_meses, costo, datos_pago } = req.body;
-
-        // Simulación de pasarela de pago
-        if (!datos_pago || datos_pago.numero_tarjeta.length < 16) {
-            return res.status(400).json({ status: 'error', message: 'Pago rechazado: Datos de tarjeta inválidos.' });
-        }
-
-        const fecha_inicio = new Date();
-        const fecha_fin = new Date();
-        fecha_fin.setMonth(fecha_fin.getMonth() + parseInt(periodo_meses));
-
-        await pool.query(
-            `INSERT INTO contrato (id_usuario, id_chef, periodo_meses, costo, fecha_inicio, fecha_fin, estado)
-             VALUES (?, ?, ?, ?, ?, ?, 'activo')`,
-            [id_usuario, id_chef, periodo_meses, costo, 
-             fecha_inicio.toISOString().split('T')[0], 
-             fecha_fin.toISOString().split('T')[0]]
-        );
-
-        res.json({ status: 'ok', message: `Suscripción de ${periodo_meses} meses activada correctamente.` });
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-// 3. BIBLIOTECA DEL USUARIO (Suscripciones y Libro de Cocina)
-exports.getLibrary = async (req, res) => {
-    try {
-        const { id_usuario } = req.params;
-
-        // Suscripciones vigentes y fecha de vencimiento
-        const subscriptions = await pool.query(
-            `SELECT c.*, ch.nombre as nombre_chef, ch.foto_url 
-             FROM contrato c
-             JOIN chef ch ON c.id_chef = ch.id_chef
-             WHERE c.id_usuario = ? AND c.estado = 'activo'`,
-            [id_usuario]
-        );
-
-        // Favoritos (Libro de cocina)
-        const favorites = await pool.query(
-            `SELECT r.*, ch.nombre as nombre_chef 
-             FROM favoritos f
-             JOIN receta r ON f.id_receta = r.id_receta
-             JOIN chef ch ON r.id_chef = ch.id_chef
-             WHERE f.id_usuario = ?`,
-            [id_usuario]
-        );
-
-        res.json({ status: 'ok', data: { subscriptions, favorites } });
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-// Acceso seguro al contenido de la receta (Ver/Editar)
-exports.getRecipeContent = async (req, res) => {
-    try {
-        const { id_usuario, id_receta } = req.body;
-
-        // A. Identificar al dueño de la receta
-        const recipe = await pool.query('SELECT id_chef, url_archivo_cifrado FROM receta WHERE id_receta = ?', [id_receta]);
-        if (!recipe.length) return res.status(404).json({ message: 'Receta no encontrada.' });
-        
-        const { id_chef, url_archivo_cifrado } = recipe[0];
-
-        // B. Verificar suscripción activa y NO caducada
-        const contrato = await pool.query(
-            `SELECT * FROM contrato 
-             WHERE id_usuario = ? AND id_chef = ? 
-             AND estado = 'activo' 
-             AND fecha_fin >= DATE('now')`, 
-            [id_usuario, id_chef]
-        );
-
-        if (!contrato.length) {
-            return res.status(403).json({ 
-                status: 'expired', 
-                message: 'Acceso denegado. Tu suscripción a este Chef ha expirado o no existe.' 
-            });
-        }
-
-        // C. Recuperar llaves y archivo para descifrado
-        const keyRow = await pool.query(
-            'SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ? LIMIT 1', 
-            [id_receta]
-        );
-        
-        const vaultPath = path.join(__dirname, '../../../external_vault', url_archivo_cifrado);
-        if (!await fs.pathExists(vaultPath)) {
-            return res.status(404).json({ message: 'El archivo cifrado no se encuentra en la bóveda.' });
-        }
-
-        const fileContent = await fs.readJson(vaultPath);
-        const aesKey = keyRow[0].clave_simetrica_cifrada;
-
-        // D. Ejecutar descifrado híbrido
-        const decryptedData = await decryptRecipeProcess(fileContent.nonce, fileContent.ciphertext, aesKey);
-        
-        res.json({ status: 'ok', data: JSON.parse(decryptedData) });
-
-    } catch (error) {
-        console.error("Error de acceso:", error);
-        res.status(500).json({ status: 'error', message: 'Error al procesar el acceso seguro.' });
-    }
-};
-
-// Favoritos (Agregar/Quitar del libro de cocina)
-exports.toggleFavorite = async (req, res) => {
-    try {
-        const { id_usuario, id_receta } = req.body;
-        const exists = await pool.query('SELECT 1 FROM favoritos WHERE id_usuario = ? AND id_receta = ?', [id_usuario, id_receta]);
-
-        if (exists.length) {
-            await pool.query('DELETE FROM favoritos WHERE id_usuario = ? AND id_receta = ?', [id_usuario, id_receta]);
-            res.json({ status: 'ok', action: 'removed' });
-        } else {
-            await pool.query('INSERT INTO favoritos (id_usuario, id_receta) VALUES (?, ?)', [id_usuario, id_receta]);
-            res.json({ status: 'ok', action: 'added' });
-        }
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-// Editar perfil del usuario (nombre, descripción, foto)
-exports.updateProfile = async (req, res) => {
-    try {
-        const { id_usuario } = req.params;
-        const { nombre, descripcion, foto_url } = req.body;
-
-        if (!nombre) {
-            return res.status(400).json({ status: 'error', message: 'El nombre es obligatorio.' });
-        }
-
-        await pool.query(
-            `UPDATE usuarios SET nombre = ?, descripcion = ?, foto_url = ? WHERE id_usuario = ?`,
-            [nombre, descripcion, foto_url, id_usuario]
-        );
-
-        res.json({ status: 'ok', message: 'Perfil actualizado correctamente.' });
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
 // Obtener perfil público detallado de un chef para el suscriptor
 exports.getPublicChefProfile = async (req, res) => {
     try {
@@ -252,6 +105,236 @@ exports.getPublicChefProfile = async (req, res) => {
     } catch (error) {
         console.error("==== ERROR AL CARGAR PERFIL DE CHEF ====");
         console.error(error);
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// BÓVEDA Y BIBLIOTECA PERSONAL
+// Obtener Suscripciones Activas y Favoritos
+exports.getLibrary = async (req, res) => {
+    try {
+        const { id_usuario } = req.params;
+
+        // Suscripciones vigentes y fecha de vencimiento
+        const subscriptions = await pool.query(
+            `SELECT c.*, ch.nombre as nombre_chef, ch.foto_url 
+             FROM contrato c
+             JOIN chef ch ON c.id_chef = ch.id_chef
+             WHERE c.id_usuario = ? AND c.estado = 'activo'`,
+            [id_usuario]
+        );
+
+        // Favoritos (Libro de cocina)
+        const favorites = await pool.query(
+            `SELECT r.*, ch.nombre as nombre_chef 
+             FROM favoritos f
+             JOIN receta r ON f.id_receta = r.id_receta
+             JOIN chef ch ON r.id_chef = ch.id_chef
+             WHERE f.id_usuario = ?`,
+            [id_usuario]
+        );
+
+        res.json({ status: 'ok', data: { subscriptions, favorites } });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// Función para llamar a keys.py y obtener la privada PEM
+const getSubscriberPrivateKey = (password, userRow) => {
+    return new Promise((resolve) => {
+        const python = spawn('python', [
+            path.join(__dirname, '../../crypto_vault/keys.py'),
+            'decrypt', password, userRow.clave_privada_cifrada, userRow.crypto_salt, userRow.crypto_nonce, userRow.contraseña_hash
+        ]);
+        let result = "";
+        python.stdout.on('data', (d) => result += d.toString());
+        python.on('close', () => {
+            try { resolve(JSON.parse(result)); } catch { resolve({status: 'error'}); }
+        });
+    });
+};
+
+// Función para desenvolver la AES Key (ECDH)
+const unwrapRecipeKey = (privatePem, ephPub, wrappedKey, nonce) => {
+    return new Promise((resolve) => {
+        const python = spawn('python', [
+            path.join(__dirname, '../../crypto_vault/sharing.py'),
+            'unwrap', privatePem, ephPub, wrappedKey, nonce
+        ]);
+        let result = "";
+        python.stdout.on('data', (d) => result += d.toString());
+        python.on('close', () => resolve(result.trim()));
+    });
+};
+
+exports.getRecipeContent = async (req, res) => {
+    try {
+        const { id_usuario, id_receta, password } = req.body;
+
+        if (!id_usuario || !id_receta || !password) {
+            return res.status(400).json({ status: 'error', message: 'Faltan datos para el descifrado.' });
+        }
+
+        // 1. OBTENER EL CHEF DUEÑO DE LA RECETA
+        // Necesitamos el id_chef para buscar el contrato
+        const recipeRows = await pool.query(
+            'SELECT id_chef, url_archivo_cifrado, hash_archivo FROM receta WHERE id_receta = ?', 
+            [id_receta]
+        );
+        
+        if (!recipeRows || recipeRows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'Receta no encontrada.' });
+        }
+        
+        const { id_chef, url_archivo_cifrado, hash_archivo } = recipeRows[0];
+
+        // 2. VERIFICAR SUSCRIPCIÓN ACTIVA AL CHEF
+        // Corregido: Filtramos por id_chef, que sí existe en la tabla 'contrato'
+        const contratoRows = await pool.query(
+            `SELECT id_contrato FROM contrato 
+             WHERE id_usuario = ? AND id_chef = ? 
+             AND estado = 'activo' 
+             AND fecha_fin >= DATE('now')`, 
+            [id_usuario, id_chef]
+        );
+
+        if (!contratoRows || contratoRows.length === 0) {
+            return res.status(403).json({ 
+                status: 'expired', 
+                message: 'No tienes una suscripción activa con este Chef.' 
+            });
+        }
+
+        // 3. RECUPERAR DATOS DEL USUARIO PARA DESBLOQUEAR SU LLAVE PRIVADA
+        const userRows = await pool.query('SELECT * FROM usuarios WHERE id_usuario = ?', [id_usuario]);
+        const user = userRows[0];
+
+        // 4. DESBLOQUEAR LLAVE PRIVADA (keys.py)
+        const keyData = await getSubscriberPrivateKey(password, user);
+        if (keyData.status !== 'success') {
+            return res.status(401).json({ status: 'error', message: 'Contraseña de bóveda incorrecta.' });
+        }
+
+        // 5. RECUPERAR LLAVE SIMÉTRICA DE LA RECETA
+        const keyRows = await pool.query(
+            'SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ?', 
+            [id_receta]
+        );
+        const recipeAesKey = keyRows[0].clave_simetrica_cifrada;
+
+        // 6. PROCESO HÍBRIDO (sharing.py - wrap y unwrap)
+        // Envolvemos con la pública y desenvolvemos con la privada recién recuperada
+        const pythonWrap = spawn('python', [path.join(__dirname, '../../crypto_vault/sharing.py'), 'wrap', user.clave_publica, recipeAesKey]);
+        let wrapRes = "";
+        await new Promise(r => { pythonWrap.stdout.on('data', d => wrapRes += d); pythonWrap.on('close', r); });
+        const wrappedPackage = JSON.parse(wrapRes);
+
+        const finalAesKey = await unwrapRecipeKey(
+            keyData.private_key, 
+            wrappedPackage.ephemeral_public_key, 
+            wrappedPackage.wrapped_key, 
+            wrappedPackage.nonce
+        );
+
+        // 7. DESCIFRADO FINAL DEL ARCHIVO
+        const vaultPath = path.join(__dirname, '../../../external_vault', url_archivo_cifrado);
+        const fileContent = await fs.readJson(vaultPath);
+
+        const decryptedContent = await decryptRecipeProcess(
+            fileContent.nonce, 
+            fileContent.ciphertext, 
+            finalAesKey, 
+            hash_archivo
+        );
+        
+        res.json({ status: 'ok', data: JSON.parse(decryptedContent) });
+
+    } catch (error) {
+        console.error("Error en el acceso seguro:", error);
+        res.status(500).json({ status: 'error', message: 'Error interno en la bóveda.' });
+    }
+};
+
+// Agregar/Quitar recetas de favoritos
+exports.toggleFavorite = async (req, res) => {
+    try {
+        const { id_usuario, id_receta } = req.body;
+        const exists = await pool.query('SELECT 1 FROM favoritos WHERE id_usuario = ? AND id_receta = ?', [id_usuario, id_receta]);
+
+        if (exists.length) {
+            await pool.query('DELETE FROM favoritos WHERE id_usuario = ? AND id_receta = ?', [id_usuario, id_receta]);
+            res.json({ status: 'ok', action: 'removed' });
+        } else {
+            await pool.query('INSERT INTO favoritos (id_usuario, id_receta) VALUES (?, ?)', [id_usuario, id_receta]);
+            res.json({ status: 'ok', action: 'added' });
+        }
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// SUSCRIPCIONES Y PAGOS
+// Simulación de pasarela de pago y creación de contrato
+exports.subscribe = async (req, res) => {
+    try {
+        const { id_usuario, id_chef, periodo_meses, costo, datos_pago } = req.body;
+
+        // Simulación de pasarela de pago
+        if (!datos_pago || datos_pago.numero_tarjeta.length < 16) {
+            return res.status(400).json({ status: 'error', message: 'Pago rechazado: Datos de tarjeta inválidos.' });
+        }
+
+        const fecha_inicio = new Date();
+        const fecha_fin = new Date();
+        fecha_fin.setMonth(fecha_fin.getMonth() + parseInt(periodo_meses));
+
+        await pool.query(
+            `INSERT INTO contrato (id_usuario, id_chef, periodo_meses, costo, fecha_inicio, fecha_fin, estado)
+             VALUES (?, ?, ?, ?, ?, ?, 'activo')`,
+            [id_usuario, id_chef, periodo_meses, costo, 
+             fecha_inicio.toISOString().split('T')[0], 
+             fecha_fin.toISOString().split('T')[0]]
+        );
+
+        res.json({ status: 'ok', message: `Suscripción de ${periodo_meses} meses activada correctamente.` });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// Cancelar suscripción desde el lado del usuario
+exports.cancelUserSubscription = async (req, res) => {
+    try {
+        const { id_contrato } = req.params;
+        
+        await pool.query('UPDATE contrato SET estado = "cancelado" WHERE id_contrato = ?', [id_contrato]);
+        
+        res.json({ status: 'ok', message: 'Suscripción cancelada exitosamente. Se ha revocado el acceso a la bóveda.' });
+    } catch (error) {
+        console.error("Error al cancelar suscripción:", error);
+        res.status(500).json({ status: 'error', message: "Error interno del servidor al cancelar." });
+    }
+};
+
+// PERFIL DEL SUSCRIPTOR
+// Editar perfil del usuario (nombre, descripción, foto)
+exports.updateProfile = async (req, res) => {
+    try {
+        const { id_usuario } = req.params;
+        const { nombre, descripcion, foto_url } = req.body;
+
+        if (!nombre) {
+            return res.status(400).json({ status: 'error', message: 'El nombre es obligatorio.' });
+        }
+
+        await pool.query(
+            `UPDATE usuarios SET nombre = ?, descripcion = ?, foto_url = ? WHERE id_usuario = ?`,
+            [nombre, descripcion, foto_url, id_usuario]
+        );
+
+        res.json({ status: 'ok', message: 'Perfil actualizado correctamente.' });
+    } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };

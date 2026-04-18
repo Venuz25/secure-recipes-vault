@@ -4,13 +4,13 @@ const { spawn } = require('child_process');
 const path = require('path');
 const crypto = require('crypto');
 
-// === UTILS PARA CIFRADO AES-128 ===
-// Función para cifrar contenido usando el script de Python
+// UTILS: Cifrado y Descifrado (Python)
+// Función para ejecutar el script de cifrado en Python
 const encryptContent = (jsonData) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
-        
-        console.log("\nEjecutando cifrado de datos...\n");
+
+        console.log("\nEjecutando script de cifrado...\n");
         const python = spawn('python', [scriptPath, 'encrypt', JSON.stringify(jsonData)]);
         
         let result = "";
@@ -23,26 +23,20 @@ const encryptContent = (jsonData) => {
             if (code !== 0) return reject("Error en Python: " + errorData);
             try { 
                 resolve(JSON.parse(result)); 
+            } catch(e) { 
+                reject("Error al parsear JSON de Python: " + result); 
             }
-            catch(e) { reject("Error al parsear JSON de Python: " + result); }
         });
     });
 };
 
-// Función para descifrar contenido usando el script de Python
+// Función para ejecutar el script de descifrado en Python
 const decryptContent = (nonce, ciphertext, aesKey, expectedHash) => {
     return new Promise((resolve, reject) => {
         const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
-        
-        console.log("\nEjecutando descifrado de datos...\n");
-        const python = spawn('python', [
-            scriptPath, 
-            'decrypt', 
-            nonce, 
-            ciphertext, 
-            aesKey, 
-            expectedHash 
-        ]);
+
+        console.log("\nEjecutando script de descifrado...\n");
+        const python = spawn('python', [scriptPath, 'decrypt', nonce, ciphertext, aesKey, expectedHash]);
         
         let result = "";
         let errorData = "";
@@ -61,18 +55,15 @@ const decryptContent = (nonce, ciphertext, aesKey, expectedHash) => {
     });
 };
 
-// === CONTROLADORES DASHBOARD ===
-// Controlador para obtener estadísticas y datos del dashboard del Chef
+// DASHBOARD
+// Obtener datos para el dashboard del chef (perfil, recetas, suscriptores)
 exports.getChefDashboard = async (req, res) => {
     const { id_chef } = req.params;
     try {
         const chef = await pool.query('SELECT * FROM chef WHERE id_chef = ?', [id_chef]);
         
         if (!chef || chef.length === 0) {
-            return res.status(404).json({ 
-                status: 'error', 
-                message: 'El Chef con ID ' + id_chef + ' no existe en la base de datos.' 
-            });
+            return res.status(404).json({ status: 'error', message: `El Chef con ID ${id_chef} no existe.` });
         }
 
         const recetas = await pool.query(`
@@ -90,18 +81,15 @@ exports.getChefDashboard = async (req, res) => {
             WHERE c.id_chef = ? 
             ORDER BY c.fecha_fin DESC`, [id_chef]);
 
-        res.json({ 
-            status: 'ok', 
-            data: { perfil: chef[0], recetas, suscriptores } 
-        });
+        res.json({ status: 'ok', data: { perfil: chef[0], recetas, suscriptores } });
     } catch (error) {
-        console.error("ERROR EN DASHBOARD:", error);
+        console.error("Error en Dashboard:", error.message);
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-// === CONTROLADORES PERFIL ===
-// Controlador para actualizar perfil del Chef
+// PERFIL DEL CHEF
+// Actualizar perfil del chef (descripción, foto, precios, etc.)
 exports.updateChefProfile = async (req, res) => {
     try {
         const { id_chef } = req.params;
@@ -118,8 +106,67 @@ exports.updateChefProfile = async (req, res) => {
     }
 };
 
-// === CONTROLADORES RECETAS ===
-// Controlador para obtener y descifrar una receta específica
+// Endpoint para actualizar solo los precios de suscripción
+exports.updateChefPrices = async (req, res) => {
+    try {
+        const { id_chef } = req.params;
+        const { precio_3m, precio_6m, precio_12m } = req.body;
+        
+        await pool.query(
+            'UPDATE chef SET precio_3m = ?, precio_6m = ?, precio_12m = ? WHERE id_chef = ?',
+            [precio_3m, precio_6m, precio_12m, id_chef]
+        );
+        res.json({ status: 'ok', message: 'Precios actualizados exitosamente' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// GESTIÓN DE RECETAS
+// Crear nueva receta (con cifrado y almacenamiento seguro)
+exports.uploadRecipe = async (req, res) => {
+  try {
+    const { id_chef, titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, contenido } = req.body;
+
+    console.log("\n\n========== CIFRANDO NUEVA RECETA ==========");
+    console.log("Cifrando receta:", titulo);
+    console.log("Contenido recibido para cifrado:", contenido);
+    const cryptoData = await encryptContent(contenido);
+
+    // 2. Guardar archivo físico
+    const fileName = `recipe_${Date.now()}.enc`;
+    const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
+    await fs.ensureDir(path.join(__dirname, '../../../external_vault'));
+    
+    await fs.writeFile(vaultPath, JSON.stringify({
+        nonce: cryptoData.nonce,
+        ciphertext: cryptoData.ciphertext
+    }));
+
+    console.log("Datos criptográficos:", cryptoData);
+    console.log("Archivo cifrado guardado en vault:", vaultPath);
+
+    // 3. Registrar receta en BD
+    const sql = `
+      INSERT INTO receta (titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, url_archivo_cifrado, hash_archivo, id_chef) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const params = [titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, fileName, cryptoData.hash, id_chef];
+    const result = await pool.query(sql, params);
+
+    // 4. Guardar la llave
+    await pool.query(
+      `INSERT INTO clave_receta (id_receta, clave_simetrica_cifrada) VALUES (?, ?)`,
+      [result.insertId, cryptoData.key]
+    );
+
+    res.json({ status: 'ok', message: 'Receta cifrada y guardada.' });
+  } catch (error) {
+    res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
+// Obtener receta descifrada para visualización o edición
 exports.getDecryptedRecipe = async (req, res) => {
   try {
     const { id_receta } = req.params;
@@ -132,95 +179,30 @@ exports.getDecryptedRecipe = async (req, res) => {
     `;
     const [receta] = await pool.query(query, [id_receta]);
 
-    console.log("\n\n====== DESCIFRADO DE RECETA ======");
-    console.log("Receta obtenida para descifrado:", receta);
-
     const vaultPath = path.join(__dirname, '../../../external_vault', receta.url_archivo_cifrado);
     const fileRaw = await fs.readFile(vaultPath, 'utf8');
     const { nonce, ciphertext } = JSON.parse(fileRaw);
 
-    console.log("Datos leídos del archivo cifrado:", { nonce, ciphertext });
+    console.log("\n\n========== DESCIFRANDO RECETA ==========");
+    console.log("Descifrando receta:", {id: id_receta, file: receta.url_archivo_cifrado});
+    console.log("Contenido para cifrado:", { ciphertext });
+    console.log("Datos del archivo:", {nonce, clave: receta.clave_simetrica_cifrada, hash: receta.hash_archivo});
+
     const decryptedData = await decryptContent(nonce, ciphertext, receta.clave_simetrica_cifrada, receta.hash_archivo);
 
+    console.log("Datos descifrados:", decryptedData);
+
     res.json({ status: 'ok', data: decryptedData });
-    console.log("Receta descifrada exitosamente:", decryptedData);
-
   } catch (error) {
-    console.error("ERROR AL DESCIFRAR:", error);
     const errorMessage = error instanceof Error ? error.message : String(error);
-
     if (errorMessage.includes("INTEGRITY_ERROR")) {
-        return res.status(403).json({ 
-            status: 'error', 
-            message: "Alerta de Seguridad!!\nEl contenido de la receta no coincide con su hash." 
-        });
+        return res.status(403).json({ status: 'error', message: "Alerta de Seguridad: El contenido de la receta no coincide con su hash oficial." });
     }
-
-    res.status(500).json({ 
-        status: 'error', 
-        message: "No se pudo descifrar la receta. Verifique los permisos o la integridad del archivo." 
-    });
-    console.error("Detalles del error de descifrado:", errorMessage);
+    res.status(500).json({ status: 'error', message: "No se pudo descifrar la receta." });
   }
 };
 
-// Controlador para subir una nueva receta (cifrado AES-128 + registro en BD)
-exports.uploadRecipe = async (req, res) => {
-  try {
-    const { 
-      id_chef, titulo, subtitulo, descripcion, 
-      tiempo_preparacion, dificultad, porciones, 
-      id_categoria, contenido 
-    } = req.body;
-
-    // 1. Cifrado Centralizado en Python
-    console.log("\n\n====== CIFRADO DE NUEVA RECETA ======");
-    console.log("Cifrando receta:", { titulo});
-
-    console.log("Contenido a cifrar:", contenido);
-    const cryptoData = await encryptContent(contenido);
-
-    // 2. Guardado de archivo .enc
-    const fileName = `recipe_${Date.now()}.enc`;
-    const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
-    await fs.ensureDir(path.join(__dirname, '../../../external_vault'));
-    
-    // Guardamos el objeto con nonce y ciphertext que devolvió Python
-    await fs.writeFile(vaultPath, JSON.stringify({
-        nonce: cryptoData.nonce,
-        ciphertext: cryptoData.ciphertext
-    }));
-    console.log("Archivo cifrado guardado en:", vaultPath);
-    console.log("Datos del cifrado:", { cryptoData });
-
-    // 3. Inserción en la Base de Datos
-    const sql = `
-      INSERT INTO receta 
-      (titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, url_archivo_cifrado, hash_archivo, id_chef) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-
-    const params = [
-      titulo, subtitulo, descripcion, 
-      tiempo_preparacion, dificultad, porciones, 
-      id_categoria, fileName, cryptoData.hash, id_chef
-    ];
-
-    const result = await pool.query(sql, params);
-
-    // 4. Guardar la llave generada para el Chef
-    await pool.query(
-      `INSERT INTO clave_receta (id_receta, clave_simetrica_cifrada) VALUES (?, ?)`,
-      [result.insertId, cryptoData.key]
-    );
-
-    res.json({ status: 'ok', message: '¡Receta cifrada y guardada!' });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
-  }
-};
-
-// Controlador para editar una receta existente (cifrado AES-128 + actualización en BD)
+// Actualizar receta (con re-cifrado y manejo de archivos)
 exports.updateRecipe = async (req, res) => {
     try {
         const { id_receta } = req.params;
@@ -229,11 +211,12 @@ exports.updateRecipe = async (req, res) => {
         const oldFileResult = await pool.query('SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', [id_receta]);
         const oldFileName = oldFileResult[0]?.url_archivo_cifrado;
 
-        console.log("\n\n====== ACTUALIZACIÓN DE RECETA ======");
-        console.log("Actualizando receta:", id_receta);
-        console.log("Nuevo contenido:", req.body);
+        // 1. Re-cifrar y guardar nuevo archivo
+        console.log("\n\n========== RECIFRANDO RECETA ==========");
+        console.log("Recifrando receta:", {titulo, oldFileName});
+        console.log("Contenido recibido para re-cifrado:", contenido);
+
         const cryptoData = await encryptContent(contenido);
-        
         const fileName = `recipe_${id_receta}_${Date.now()}.enc`;
         const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
         
@@ -242,10 +225,10 @@ exports.updateRecipe = async (req, res) => {
             ciphertext: cryptoData.ciphertext
         }));
 
-        console.log("Archivo re-cifrado guardado en:", vaultPath);
-        console.log("Datos del nuevo cifrado:", { cryptoData });
+        console.log("Datos criptográficos del recifrado:", cryptoData);
+        console.log("Nuevo archivo cifrado guardado en vault:", vaultPath);
 
-        // 3. Actualización Atómica en BD
+        // 2. Actualizar BD
         await pool.query(
             `UPDATE receta SET 
             titulo = ?, subtitulo = ?, descripcion = ?, tiempo_preparacion = ?, 
@@ -255,24 +238,49 @@ exports.updateRecipe = async (req, res) => {
              otrosDatos.dificultad, otrosDatos.porciones, otrosDatos.id_categoria, fileName, cryptoData.hash, id_receta]
         );
 
-        // Actualizamos la clave con la nueva generada por Python
         await pool.query(
             `UPDATE clave_receta SET clave_simetrica_cifrada = ? WHERE id_receta = ?`,
             [cryptoData.key, id_receta]
         );
 
-        // 4. Limpieza del archivo anterior
+        // 3. Limpiar archivo anterior
         if (oldFileName) {
             await fs.remove(path.join(__dirname, '../../../external_vault', oldFileName));
         }
 
-        res.json({ status: 'ok', message: 'Receta actualizada con nueva llave de seguridad!' });
+        res.json({ status: 'ok', message: 'Receta actualizada correctamente.' });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-// Controlador para obtener categorías de cocina
+// Eliminar receta (con eliminación de archivos y claves)
+exports.deleteRecipe = async (req, res) => {
+    try {
+        const { id_receta } = req.params;
+
+        const rows = await pool.query('SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', [id_receta]);
+        if (!rows || rows.length === 0) {
+            return res.status(404).json({ status: 'error', message: 'La receta no existe.' });
+        }
+
+        const fileName = rows[0].url_archivo_cifrado;
+
+        await pool.query('DELETE FROM receta WHERE id_receta = ?', [id_receta]);
+
+        const filePath = path.join(__dirname, '../../../external_vault', fileName);
+        if (await fs.pathExists(filePath)) {
+            await fs.remove(filePath);
+        }
+
+        res.json({ status: 'ok', message: 'Receta eliminada permanentemente.' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
+    }
+};
+
+// CATEGORÍAS
+// Obtener categorías de cocina para asignar a las recetas
 exports.getCategories = async (req, res) => {
     try {
         const categorias = await pool.query('SELECT * FROM categorias_cocina ORDER BY nombre ASC');
@@ -282,62 +290,8 @@ exports.getCategories = async (req, res) => {
     }
 };
 
-// Controlador para eliminar una receta y su archivo físico
-exports.deleteRecipe = async (req, res) => {
-    try {
-        const { id_receta } = req.params;
-
-        // 1. Obtener el nombre del archivo antes de borrar el registro
-        const rows = await pool.query(
-            'SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', 
-            [id_receta]
-        );
-
-        if (!rows || rows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'La receta no existe.' });
-        }
-
-        const fileName = rows[0].url_archivo_cifrado;
-
-        // 2. Borrar de la base de datos
-        await pool.query('DELETE FROM receta WHERE id_receta = ?', [id_receta]);
-
-        // 3. Borrar el archivo físico de external_vault
-        const filePath = path.join(__dirname, '../../../external_vault', fileName);
-        
-        if (await fs.pathExists(filePath)) {
-            await fs.remove(filePath);
-        } else {
-            console.warn(`El archivo ${fileName} no se encontró en la bóveda, pero el registro fue eliminado.`);
-        }
-
-        res.json({ 
-            status: 'ok', 
-            message: 'Receta y archivo secreto eliminados permanentemente.' 
-        });
-
-    } catch (error) {
-        console.error("ERROR AL ELIMINAR:", error.message);
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-// Actualizar solo los precios del chef
-exports.updateChefPrices = async (req, res) => {
-    try {
-        const { id_chef } = req.params;
-        const { precio_3m, precio_6m, precio_12m } = req.body;
-        await pool.query(
-            'UPDATE chef SET precio_3m = ?, precio_6m = ?, precio_12m = ? WHERE id_chef = ?',
-            [precio_3m, precio_6m, precio_12m, id_chef]
-        );
-        res.json({ status: 'ok', message: 'Precios actualizados exitosamente' });
-    } catch (error) {
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-};
-
-// Cancelar suscripción (Cambiar estado a 'cancelado')
+// GESTIÓN DE SUSCRIPCIONES (Lado del Chef)
+// Cancelar suscripción de un usuario (cambiar estado a "cancelado")
 exports.cancelSubscription = async (req, res) => {
     try {
         const { id_contrato } = req.params;
@@ -348,7 +302,7 @@ exports.cancelSubscription = async (req, res) => {
     }
 };
 
-// Reactivar suscripción (Solo si su estado es 'cancelado')
+// Reactivar suscripción de un usuario (cambiar estado a "activo")
 exports.reactivateSubscription = async (req, res) => {
     try {
         const { id_contrato } = req.params;
@@ -356,14 +310,13 @@ exports.reactivateSubscription = async (req, res) => {
             'UPDATE contrato SET estado = "activo" WHERE id_contrato = ? AND estado = "cancelado"', 
             [id_contrato]
         );
-        
         res.json({ status: 'ok', message: 'Suscripción reactivada' });
     } catch (error) {
         res.status(500).json({ status: 'error', message: error.message });
     }
 };
 
-// Eliminar suscripción (Borrar registro físico)
+// Eliminar suscripción de un usuario (borrar registro de contrato)
 exports.deleteSubscription = async (req, res) => {
     try {
         const { id_contrato } = req.params;

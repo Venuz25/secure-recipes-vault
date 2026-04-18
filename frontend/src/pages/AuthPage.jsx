@@ -4,18 +4,25 @@ import { api } from '../services/Api';
 import { useNavigate } from 'react-router-dom';
 
 const AuthPage = () => {
+  const navigate = useNavigate();
+
+  // ESTADOS (STATES)
+  
+  // Controles de UI
   const [isLogin, setIsLogin] = useState(true);
   const [isChefRegistration, setIsChefRegistration] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const navigate = useNavigate();
 
+  // Datos de Formularios
   const [loginData, setLoginData] = useState({ correo: '', password: '' });
   const [registerData, setRegisterData] = useState({ nombre: '', email: '', password: '' });
 
-  // --- LÓGICA DE INICIO DE SESIÓN ---
+  // HANDLERS: Formulario de Login
+  // Iniciar sesión: Enviar datos al backend y manejar la respuesta
   const handleLoginSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    
     try {
       const res = await api.login(loginData); 
       
@@ -37,10 +44,12 @@ const AuthPage = () => {
     }
   };
 
-  // --- LÓGICA DE REGISTRO ---
+  // HANDLERS: Formulario de Registro
+  // Registrar nuevo usuario o chef: Enviar datos al backend y manejar la respuesta
   const handleRegisterSubmit = async (e) => {
     e.preventDefault();
     setIsLoading(true);
+    
     try {
       const dataToSend = { 
         nombre: registerData.nombre, 
@@ -56,6 +65,7 @@ const AuthPage = () => {
         alert(res.message);
         setIsLogin(true); 
         setIsChefRegistration(false);
+        setRegisterData({ nombre: '', email: '', password: '' }); 
       } else { 
         alert(res.message); 
       }
@@ -67,7 +77,7 @@ const AuthPage = () => {
     }
   };
 
-  // Variantes de animación
+  // CONFIGURACIÓN DE ANIMACIONES (Framer Motion)
   const formVariants = {
     hidden: (direction) => ({
       x: direction > 0 ? '50%' : '-50%',
@@ -112,14 +122,12 @@ const AuthPage = () => {
           <div className="absolute inset-0 opacity-10" style={{ backgroundImage: 'url("https://www.transparenttextures.com/patterns/cork-board.png")' }}></div>
           
           <motion.div
-            // La 'key' dinámica permite que la animación se reinicie al cambiar de estado
             key={isLogin ? 'login' : (isChefRegistration ? 'chef' : 'register')}
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.5 }}
             className="relative text-center"
           >
-            {/* El ícono se mantiene igual, solo cambia el color de su fondo circular */}
             <div className={`w-24 h-24 rounded-full flex items-center justify-center mx-auto mb-6 ${
               isLogin ? 'bg-green-100 text-[#2E7D32]' : (isChefRegistration ? 'bg-amber-100 text-[#5D4037]' : 'bg-orange-100 text-[#D35400]')
             }`}>
