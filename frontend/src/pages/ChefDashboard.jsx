@@ -113,6 +113,7 @@ const ChefDashboard = () => {
   // HANDLERS: Acciones del Chef
   const handleLogout = () => {
     localStorage.clear();
+    sessionStorage.clear();
     navigate('/AuthPage');
   };
 
