@@ -4,6 +4,25 @@ const path = require('path');
 const fs = require('fs-extra');
 const { spawn } = require('child_process');
 
+// Helper para ejecutar los scripts de Python
+const runPython = (script, args) => {
+    return new Promise((resolve, reject) => {
+        const scriptPath = path.join(__dirname, '../../crypto_vault', script);
+        const python = spawn('python', [scriptPath, ...args]);
+        
+        let result = "";
+        let errorData = "";
+
+        python.stdout.on('data', (d) => result += d.toString());
+        python.stderr.on('data', (d) => errorData += d.toString());
+
+        python.on('close', (code) => {
+            if (code !== 0) return reject(errorData);
+            resolve(result.trim());
+        });
+    });
+};
+
 // UTILS: Criptografía
 // Descifrado de la receta usando Python
 const decryptRecipeProcess = (nonce, ciphertext, aesKey, hash) => {
@@ -189,15 +208,29 @@ exports.getRecipeContent = async (req, res) => {
             return res.status(403).json({ status: 'expired', message: 'Acceso denegado: Suscripción inactiva.' });
         }
 
+        // --- VALIDACIÓN DE CREDENCIALES ---
+        const userRows = await pool.query('SELECT * FROM usuarios WHERE id_usuario = ?', [id_usuario]);
+        const user = userRows[0];
+
+        if (!user) return res.status(404).json({ status: 'error', message: 'Usuario no encontrado.' });
+
+        console.log("\n========== VALIDACIÓN DE IDENTIDAD ==========");
+        console.log("Contraseña:", password);
+        const authOutput = await runPython('keys.py', ['decrypt', password, user.clave_privada_cifrada, user.crypto_salt, user.crypto_nonce, user.contraseña_hash]);
+        const authResult = JSON.parse(authOutput);
+
+        if (authResult.status === 'error') {
+            console.log("   ESTADO: DENEGADO - La contraseña no coincide con el registro.");
+            return res.status(401).json({ status: 'error', message: 'Contraseña de bóveda incorrecta.' });
+        }
+        console.log("   ESTADO: AUTORIZADO");
+
         console.log("\n========== INICIANDO PROTOCOLO DE TRANSFERENCIA SEGURA (ECDH) ==========");
         console.log("Solicitante ID:", id_usuario);
         console.log("Receta ID:", id_receta);
 
         // 2. RECUPERACIÓN DE IDENTIDAD CIFRADA
         console.log("\nRecuperando Identidad Cifrada del Suscriptor para exportación...");
-        const userRows = await pool.query('SELECT * FROM usuarios WHERE id_usuario = ?', [id_usuario]);
-        const user = userRows[0];
-
         console.log("   Clave Privada (ECDSA cifrada):", user.clave_privada_cifrada);
         console.log("   Salt (PBKDF2):", user.crypto_salt);
         console.log("   Nonce (AES-GCM):", user.crypto_nonce);
@@ -227,29 +260,22 @@ exports.getRecipeContent = async (req, res) => {
         console.log("\nRecuperando contenido cifrado de external_vault...");
         const vaultPath = path.join(__dirname, '../../../external_vault', url_archivo_cifrado);
         const fileContent = await fs.readJson(vaultPath);
-        console.log("Contenido cifrado recuperado de", vaultPath);
-        console.log("   Contenido cifrado :", fileContent.ciphertext);
-        console.log("   Nonce del archivo:", fileContent.nonce);
-        console.log("   Hash del archivo:", hash_archivo);
-
-        console.log("\nEnviando datos al cliente...");
+        
+        console.log("Contenido cifrado recuperado satisfactoriamente.");
 
         res.json({ 
             status: 'ok', 
             crypto_payload: {
-                // Componentes para reconstruir la llave privada
                 user_identity: {
                     privada_cifrada: user.clave_privada_cifrada,
                     salt: user.crypto_salt,
                     nonce: user.crypto_nonce
                 },
-                // Componentes de la llave AES envuelta
                 key_wrap: {
                     wrapped_key: wrappedPackage.wrapped_key,
                     ephemeral_public: wrappedPackage.ephemeral_public_key,
                     nonce: wrappedPackage.nonce
                 },
-                // Componentes del archivo de receta
                 recipe_data: {
                     ciphertext: fileContent.ciphertext,
                     nonce: fileContent.nonce,
@@ -259,7 +285,7 @@ exports.getRecipeContent = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("\nERROR CRÍTICO EN EL PROTOCOLO DE TRANSFERENCIA:", error);
+        console.error("\nERROR CRÍTICO:", error);
         res.status(500).json({ status: 'error', message: 'Fallo interno en el despacho de la bóveda.' });
     }
 };
