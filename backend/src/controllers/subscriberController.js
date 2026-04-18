@@ -72,8 +72,6 @@ exports.exploreRecipes = async (req, res) => {
 exports.getPublicChefProfile = async (req, res) => {
     try {
         const { id_chef } = req.params;
-
-        // 1. Obtenemos al chef
         const chefResult = await pool.query('SELECT * FROM chef WHERE id_chef = ?', [id_chef]);
         
         if (!chefResult || chefResult.length === 0) {
@@ -81,12 +79,9 @@ exports.getPublicChefProfile = async (req, res) => {
         }
 
         const chef = chefResult[0];
-
-        // 2. Contamos sus recetas totales
         const recetasResult = await pool.query('SELECT COUNT(*) as total FROM receta WHERE id_chef = ?', [id_chef]);
         const total_recetas = recetasResult && recetasResult.length > 0 ? recetasResult[0].total : 0;
 
-        // 3. Contamos el total de favoritos
         const favoritosResult = await pool.query(`
             SELECT COUNT(f.id_favorito) as total 
             FROM favoritos f 
@@ -140,7 +135,7 @@ exports.getLibrary = async (req, res) => {
     }
 };
 
-// Función para llamar a keys.py y obtener la privada PEM
+// Función para obtener la privada PEM
 const getSubscriberPrivateKey = (password, userRow) => {
     return new Promise((resolve) => {
         const python = spawn('python', [
@@ -172,25 +167,16 @@ exports.getRecipeContent = async (req, res) => {
     try {
         const { id_usuario, id_receta, password } = req.body;
 
-        if (!id_usuario || !id_receta || !password) {
-            return res.status(400).json({ status: 'error', message: 'Faltan datos para el descifrado.' });
-        }
-
-        // 1. OBTENER EL CHEF DUEÑO DE LA RECETA
-        // Necesitamos el id_chef para buscar el contrato
+        // 1. VALIDACIÓN DE PERMISOS Y METADATOS
         const recipeRows = await pool.query(
             'SELECT id_chef, url_archivo_cifrado, hash_archivo FROM receta WHERE id_receta = ?', 
             [id_receta]
         );
         
-        if (!recipeRows || recipeRows.length === 0) {
-            return res.status(404).json({ status: 'error', message: 'Receta no encontrada.' });
-        }
+        if (!recipeRows || recipeRows.length === 0) return res.status(404).json({ status: 'error', message: 'Receta no encontrada.' });
         
         const { id_chef, url_archivo_cifrado, hash_archivo } = recipeRows[0];
 
-        // 2. VERIFICAR SUSCRIPCIÓN ACTIVA AL CHEF
-        // Corregido: Filtramos por id_chef, que sí existe en la tabla 'contrato'
         const contratoRows = await pool.query(
             `SELECT id_contrato FROM contrato 
              WHERE id_usuario = ? AND id_chef = ? 
@@ -200,59 +186,81 @@ exports.getRecipeContent = async (req, res) => {
         );
 
         if (!contratoRows || contratoRows.length === 0) {
-            return res.status(403).json({ 
-                status: 'expired', 
-                message: 'No tienes una suscripción activa con este Chef.' 
-            });
+            return res.status(403).json({ status: 'expired', message: 'Acceso denegado: Suscripción inactiva.' });
         }
 
-        // 3. RECUPERAR DATOS DEL USUARIO PARA DESBLOQUEAR SU LLAVE PRIVADA
+        console.log("\n========== INICIANDO PROTOCOLO DE TRANSFERENCIA SEGURA (ECDH) ==========");
+        console.log("Solicitante ID:", id_usuario);
+        console.log("Receta ID:", id_receta);
+
+        // 2. RECUPERACIÓN DE IDENTIDAD CIFRADA
+        console.log("\nRecuperando Identidad Cifrada del Suscriptor para exportación...");
         const userRows = await pool.query('SELECT * FROM usuarios WHERE id_usuario = ?', [id_usuario]);
         const user = userRows[0];
 
-        // 4. DESBLOQUEAR LLAVE PRIVADA (keys.py)
-        const keyData = await getSubscriberPrivateKey(password, user);
-        if (keyData.status !== 'success') {
-            return res.status(401).json({ status: 'error', message: 'Contraseña de bóveda incorrecta.' });
-        }
+        console.log("   Clave Privada (ECDSA cifrada):", user.clave_privada_cifrada);
+        console.log("   Salt (PBKDF2):", user.crypto_salt);
+        console.log("   Nonce (AES-GCM):", user.crypto_nonce);
 
-        // 5. RECUPERAR LLAVE SIMÉTRICA DE LA RECETA
+        // 3. RECUPERACIÓN DE CLAVE SIMÉTRICA DE LA RECETA
+        console.log("\nAccediendo a la Clave Simétrica de la Receta...");
         const keyRows = await pool.query(
             'SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ?', 
             [id_receta]
         );
         const recipeAesKey = keyRows[0].clave_simetrica_cifrada;
+        console.log("   Clave AES de Receta (B64):", recipeAesKey);
 
-        // 6. PROCESO HÍBRIDO (sharing.py - wrap y unwrap)
-        // Envolvemos con la pública y desenvolvemos con la privada recién recuperada
+        // 4. PROTOCOLO DE ENVOLTURA (KEY WRAPPING)
+        console.log("\nEjecutando ECDH para protección en tránsito...");
         const pythonWrap = spawn('python', [path.join(__dirname, '../../crypto_vault/sharing.py'), 'wrap', user.clave_publica, recipeAesKey]);
         let wrapRes = "";
         await new Promise(r => { pythonWrap.stdout.on('data', d => wrapRes += d); pythonWrap.on('close', r); });
         const wrappedPackage = JSON.parse(wrapRes);
 
-        const finalAesKey = await unwrapRecipeKey(
-            keyData.private_key, 
-            wrappedPackage.ephemeral_public_key, 
-            wrappedPackage.wrapped_key, 
-            wrappedPackage.nonce
-        );
+        console.log("Paquete de Clave Envuelta generado:");
+        console.log("   Clave Pública Efémera:", wrappedPackage.ephemeral_public_key);
+        console.log("   Clave AES Cifrada (Wrapped):", wrappedPackage.wrapped_key);
+        console.log("   Nonce de Envoltura:", wrappedPackage.nonce);
 
-        // 7. DESCIFRADO FINAL DEL ARCHIVO
+        // 5. OBTENCIÓN DE CONTENIDO CIFRADO (BLOB)
+        console.log("\nRecuperando contenido cifrado de external_vault...");
         const vaultPath = path.join(__dirname, '../../../external_vault', url_archivo_cifrado);
         const fileContent = await fs.readJson(vaultPath);
+        console.log("Contenido cifrado recuperado de", vaultPath);
+        console.log("   Contenido cifrado :", fileContent.ciphertext);
+        console.log("   Nonce del archivo:", fileContent.nonce);
+        console.log("   Hash del archivo:", hash_archivo);
 
-        const decryptedContent = await decryptRecipeProcess(
-            fileContent.nonce, 
-            fileContent.ciphertext, 
-            finalAesKey, 
-            hash_archivo
-        );
-        
-        res.json({ status: 'ok', data: JSON.parse(decryptedContent) });
+        console.log("\nEnviando datos al cliente...");
+
+        res.json({ 
+            status: 'ok', 
+            crypto_payload: {
+                // Componentes para reconstruir la llave privada
+                user_identity: {
+                    privada_cifrada: user.clave_privada_cifrada,
+                    salt: user.crypto_salt,
+                    nonce: user.crypto_nonce
+                },
+                // Componentes de la llave AES envuelta
+                key_wrap: {
+                    wrapped_key: wrappedPackage.wrapped_key,
+                    ephemeral_public: wrappedPackage.ephemeral_public_key,
+                    nonce: wrappedPackage.nonce
+                },
+                // Componentes del archivo de receta
+                recipe_data: {
+                    ciphertext: fileContent.ciphertext,
+                    nonce: fileContent.nonce,
+                    hash: hash_archivo
+                }
+            }
+        });
 
     } catch (error) {
-        console.error("Error en el acceso seguro:", error);
-        res.status(500).json({ status: 'error', message: 'Error interno en la bóveda.' });
+        console.error("\nERROR CRÍTICO EN EL PROTOCOLO DE TRANSFERENCIA:", error);
+        res.status(500).json({ status: 'error', message: 'Fallo interno en el despacho de la bóveda.' });
     }
 };
 

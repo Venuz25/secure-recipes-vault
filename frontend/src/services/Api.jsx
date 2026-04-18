@@ -161,18 +161,6 @@ export const api = {
     return await res.json();
   },
 
-  // Solicitar acceso al contenido de una receta (descifrado y verificación de suscripción)
-  getSubscriberRecipeContent: async (payload) => {
-    const res = await fetch(`${API_URL}/subscriber/recipe/access`, {
-      method: 'POST',
-      headers: { 
-          'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload), 
-    });
-    return await res.json();
-  },
-
   // Crear nueva suscripción a un chef (procesar pago simulado y activar acceso)
   createSubscription: async (data) => {
     const res = await fetch(`${API_URL}/subscriber/subscribe`, {
@@ -195,6 +183,52 @@ export const api = {
       console.error('Error en API al cancelar:', error);
       return { status: 'error', message: 'Error de conexión con el servidor' };
     }
+  },
+
+  // --- PROTOCOLOS LOCALES (Simulados vía Backend para ejecución de Python) ---
+  // Solicitar acceso al contenido de una receta (descifrado y verificación de suscripción)
+  getSubscriberRecipeContent: async (payload) => {
+    const res = await fetch(`${API_URL}/subscriber/recipe/access`, {
+      method: 'POST',
+      headers: { 
+          'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload), 
+    });
+    return await res.json();
+  },
+
+  // Solicitar clave privada local para desbloquear identidad
+  getLocalPrivateKey: async (data) => {
+    const res = await fetch(`${API_URL}/crypto/unlock-identity`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    return json.private_key; // Retorna el PEM
+  },
+
+  // Solicitar clave de desencriptado local
+  getLocalUnwrapKey: async (data) => {
+    const res = await fetch(`${API_URL}/crypto/unwrap-key`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    return json.aes_key; // Retorna la clave AES
+  },
+
+  // Solicitar desencriptado local de una receta
+  getLocalRecipeDecrypt: async (data) => {
+    const res = await fetch(`${API_URL}/crypto/decrypt-recipe`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    return json.data; // Retorna el JSON de la receta
   }
 
 };

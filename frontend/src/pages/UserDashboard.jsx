@@ -41,6 +41,43 @@ const UserDashboard = () => {
     }
   }, []);
 
+  const loadInitialData = async () => {
+    if (!userId || userId === 'null') return;
+    
+    try {
+      const [resUsers, resRecs, resLib, resCats] = await Promise.all([
+        fetch('http://localhost:3000/api/users').then(res => res.json()),
+        api.exploreRecipes({}), 
+        api.getUserLibrary(userId),
+        api.getCategories()
+      ]);
+
+      if (resUsers.status === 'ok' && resUsers.data) {
+        const foundUser = resUsers.data.find(u => 
+          u.id_usuario === parseInt(userId) || u.id === parseInt(userId)
+        );
+        if (foundUser) {
+          setUserData({ 
+            nombre: foundUser.nombre || foundUser.nombre_usuario || 'Suscriptor', 
+            id_usuario: userId, 
+            email: foundUser.email || foundUser.correo 
+          });
+        } else {
+          setUserData({ nombre: 'Suscriptor', id_usuario: userId });
+        }
+      }
+
+      if (resRecs.status === 'ok') setRecipes(resRecs.data);
+      if (resLib.status === 'ok') setLibrary(resLib.data);
+      if (resCats?.status === 'ok') setCategories(resCats.data);
+
+    } catch (err) {
+      console.error('Error crítico en la carga de la bóveda:', err);
+      // Fallback para que al menos cargue algo si el server de usuarios falla
+      setUserData({ nombre: 'Usuario', id_usuario: userId });
+    }
+  };
+
   // Cargar datos completos del usuario y librería
   useEffect(() => {
     if (!userId || userId === 'null' || userId === 'undefined') {
@@ -48,45 +85,28 @@ const UserDashboard = () => {
       return;
     }
 
-  const loadInitialData = async () => {
-    try {
-      // 1. Datos del usuario
-      const resUsers = await fetch('http://localhost:3000/api/users');
-      const users = await resUsers.json();
-      
-      if (users.status === 'ok' && users.data) {
-        const foundUser = users.data.find(u => u.id_usuario === parseInt(userId) || u.id === parseInt(userId));
-        setUserData(foundUser ? { nombre: foundUser.nombre || foundUser.nombre_usuario || 'Suscriptor', id_usuario: userId, email: foundUser.email || foundUser.correo } : { nombre: 'Suscriptor', id_usuario: userId, email: '' });
+    const initDashboard = async () => {
+      try {
+        setLoading(true);
+        await loadInitialData();
+      } catch (e) {
+        console.error("Fallo al iniciar Dashboard", e);
+      } finally {
+        setTimeout(() => setLoading(false), 500);
       }
+    };
 
-      // 2. Cargar Recetas, Librería y Categorías de golpe
-      const [resRecs, resLib, resCats] = await Promise.all([
-        api.exploreRecipes({}), // Pedimos todas sin filtros, el navegador filtrará
-        api.getUserLibrary(userId),
-        api.getCategories()
-      ]);
-
-      if (resRecs.status === 'ok') setRecipes(resRecs.data);
-      if (resLib.status === 'ok') setLibrary(resLib.data);
-      if (resCats?.status === 'ok') setCategories(resCats.data);
-
-    } catch (err) {
-      console.error('Error cargando el dashboard:', err);
-      setUserData({ nombre: 'Suscriptor', id_usuario: userId, email: '' });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  loadInitialData();
+    initDashboard();
   }, [userId]);
 
   // ACCIONES DEL USUARIO (HANDLERS)
   const HandleLogout = () => {
     localStorage.clear();
+    sessionStorage.clear();
     window.location.href = '/AuthPage';
   };
 
+  // Función para abrir el modal de pago con detalles del chef
   const handleOpenPayModal = async (recipe) => {
     setSelectedChef(recipe);
     setShowPayModal(true);
@@ -103,15 +123,33 @@ const UserDashboard = () => {
     }
   };
 
+  // Función para alternar favorito (agregar o quitar)
   const toggleFavorite = async (id_receta) => {
     if (!userId || favoriteLoading[id_receta]) return;
+    const estabaEnFavoritos = isFavorite(id_receta);
     setFavoriteLoading(prev => ({ ...prev, [id_receta]: true }));
     
     try {
       const res = await api.toggleFavorite(parseInt(userId), id_receta);
+      
       if (res.status === 'ok') {
         const resLib = await api.getUserLibrary(userId);
         if (resLib.status === 'ok') setLibrary(resLib.data);
+
+        setRecipes(prevRecipes => 
+          prevRecipes.map(r => {
+            if (r.id_receta === id_receta) {
+              return {
+                ...r,
+                valoracion: estabaEnFavoritos 
+                  ? Math.max(0, (r.valoracion || 0) - 1) 
+                  : (r.valoracion || 0) + 1
+              };
+            }
+            return r;
+          })
+        );
+
       } else {
         alert(res.message || 'Error al guardar favorito');
       }
@@ -128,7 +166,7 @@ const UserDashboard = () => {
       
       if (res.status === 'ok') {
         alert(res.message);
-        window.location.reload();
+        loadInitialData();
       } else {
         alert(res.message || 'No se pudo cancelar la suscripción.');
       }
@@ -478,7 +516,7 @@ const UserDashboard = () => {
             onClose={() => setShowCheckoutModal(false)} 
             onSuccess={() => {
               setShowCheckoutModal(false);
-              loadData();
+              loadInitialData();
             }} 
           />
         )}

@@ -17,10 +17,12 @@ app.use(express.urlencoded({ limit: '10mb', extended: true }));
 const usersRouter = require('./routes/users');
 const chefRouter = require('./routes/chef');
 const subscriberRouter = require('./routes/subscriber');
+const cryptoRoutes = require('./routes/cryptoRoutes');
 
 app.use('/api/users', usersRouter);
 app.use('/api/chef', chefRouter);
 app.use('/api/subscriber', subscriberRouter);
+app.use('/api/crypto', cryptoRoutes);
 
 // Probar conexión a BD
 app.get('/api/db/test', async (req, res) => {

@@ -93,57 +93,82 @@ const RecipeBookModal = ({
 
   // DESCIFRADO
   const decryptPage = async (providedPassword) => {
-    const passwordToUse = providedPassword || sessionStorage.getItem(VAULT_SESSION_KEY);
+    const userId = localStorage.getItem('userId');
+    const passwordToUse = providedPassword || sessionStorage.getItem('culinary_vault_temp_pw');
 
-    if (!passwordToUse) { return; }
-
+    if (!passwordToUse || !currentRecipe) return;
     if (decryptedCache[currentRecipe.id_receta]) return;
 
     setIsDecrypting(true);
     try {
-      const payload = { 
-        id_usuario: parseInt(localStorage.getItem('userId')), 
-        id_receta: currentRecipe.id_receta,
-        password: passwordToUse 
-      };
-
-      const res = await api.getSubscriberRecipeContent(payload); 
-      
-      if (res.status === 'ok') {
-        setDecryptedCache(prev => ({ 
-          ...prev, 
-          [currentRecipe.id_receta]: res.data 
-        }));
+        console.log("\n[FRONTEND] Ejecutando Protocolo de Desbloqueo...");
         
-        // Solo guardamos en sesión si el servidor confirmó que la clave es válida
-        sessionStorage.setItem(VAULT_SESSION_KEY, passwordToUse);
-        setVaultPassword(''); 
-      } else {
-        // Si la contraseña guardada en sesión falla la borramos
-        sessionStorage.removeItem(VAULT_SESSION_KEY);
-        alert(res.message);
-      }
-    } catch (e) { 
-      console.error("Error en el descifrado:", e);
-    } finally { 
-      setIsDecrypting(false); 
+        const response = await api.getSubscriberRecipeContent({ 
+            id_usuario: parseInt(userId), 
+            id_receta: currentRecipe.id_receta,
+            password: passwordToUse 
+        });
+
+        if (response.status === 'ok') {
+            const { user_identity, key_wrap, recipe_data } = response.crypto_payload;
+
+            // Paso A: Llave Privada
+            const privateKeyPEM = await api.getLocalPrivateKey({
+                password: passwordToUse,
+                privada_cifrada: user_identity.privada_cifrada,
+                salt: user_identity.salt,
+                nonce: user_identity.nonce
+            });
+
+            // Paso B: Clave AES
+            const recipeAESKey = await api.getLocalUnwrapKey({
+                privateKey: privateKeyPEM,
+                ephemeralPublic: key_wrap.ephemeral_public,
+                wrappedKey: key_wrap.wrapped_key,
+                nonce: key_wrap.nonce
+            });
+
+            // Paso C: Descifrado Final
+            const finalJSON = await api.getLocalRecipeDecrypt({
+                ciphertext: recipe_data.ciphertext,
+                nonce: recipe_data.nonce,
+                aesKey: recipeAESKey,
+                hash: recipe_data.hash
+            });
+
+            console.log(" > Contenido descifrado recibido:", finalJSON);
+
+            // ACTUALIZACIÓN DE ESTADO
+            // Usamos el ID de la receta actual para asegurar que se guarde en la "página" correcta
+            setDecryptedCache(prev => ({ 
+                ...prev, 
+                [currentRecipe.id_receta]: finalJSON 
+            }));
+            
+            sessionStorage.setItem('culinary_vault_temp_pw', passwordToUse);
+            setVaultPassword('');
+        }
+    } catch (e) {
+        console.error("❌ ERROR EN EL PROTOCOLO LOCAL:", e);
+        sessionStorage.removeItem('culinary_vault_temp_pw');
+    } finally {
+        // Un pequeño retraso para asegurar que el cache se guardó antes de quitar el loader
+        setTimeout(() => setIsDecrypting(false), 300);
     }
   };
 
-  // Intentamos descifrar automáticamente al cambiar de receta
-  useEffect(() => {
-    if (currentPage === 0 || !currentRecipe) return;
+  // Intentar descifrar automáticamente si existe contraseña en la sesión
+useEffect(() => {
+    if (!currentRecipe || currentPage === 0) return;
     
     const recipeId = currentRecipe.id_receta;
-    if (decryptedCache[recipeId]) return;
-
-    if (sessionStorage.getItem(VAULT_SESSION_KEY)) {
-      decryptPage();
+    if (!decryptedCache[recipeId] && sessionStorage.getItem('culinary_vault_temp_pw')) {
+        decryptPage();
     }
-  }, [currentPage, currentRecipe?.id_receta]);
+}, [currentPage, currentRecipe?.id_receta]);
 
 
-  // --- VISTAS ---
+  // VISTAS
   const renderCover = () => {
     const coverData = chefInfo || initialData;
     const numEstrellas = Number(coverData.estrellas) || 5;
@@ -215,14 +240,50 @@ const RecipeBookModal = ({
           <h3 className="font-bold text-stone-800 mb-4 flex items-center gap-2">
               <Search size={18}/> Buscar en este Volumen
           </h3>
-          <div className="relative">
+          <div className="relative group">
             <input 
               type="text" 
               placeholder="¿Qué quieres cocinar hoy?"
-              className="w-full pl-5 pr-4 py-4 bg-stone-50 border border-stone-200 rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none transition-all"
+              className="w-full pl-5 pr-4 py-4 bg-stone-50 border border-stone-200 rounded-2xl focus:ring-2 focus:ring-orange-500 outline-none transition-all shadow-sm"
               value={filters.search}
-              onChange={e => { setFilters({search: e.target.value}); setCurrentPage(0); }}
+              onChange={e => { setFilters({search: e.target.value}); }}
             />
+
+            {/* LISTA DE RESULTADOS */}
+            {filters.search.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-stone-200 rounded-2xl shadow-xl z-[100] max-h-60 overflow-y-auto overflow-x-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                
+                {filteredRecipes.length > 0 ? (
+                  filteredRecipes.map((recipe) => (
+                    <button
+                      key={recipe.id_receta}
+                      onClick={() => {
+                        const realIndex = recipes.findIndex(r => r.id_receta === recipe.id_receta);
+                        setCurrentPage(realIndex + 1);
+                        setFilters({ search: '' });
+                      }}
+                      className="w-full flex items-center gap-4 p-4 hover:bg-orange-50 transition-colors border-b border-stone-50 last:border-none group/item"
+                    >
+                      <div className="w-12 h-12 bg-stone-100 rounded-lg overflow-hidden flex-shrink-0">
+                          <ChefHat size={20} className="m-auto text-stone-300 group-hover/item:text-orange-400 transition-colors" />
+                      </div>
+                      <div className="text-left">
+                        <p className="font-bold text-stone-800 text-sm group-hover/item:text-orange-600 transition-colors line-clamp-1">
+                          {recipe.titulo}
+                        </p>
+                        <p className="text-[10px] text-stone-400 uppercase font-black tracking-tighter">
+                          Chef {recipe.nombre_chef}
+                        </p>
+                      </div>
+                    </button>
+                  ))
+                ) : (
+                  <div className="p-8 text-center">
+                    <p className="text-sm text-stone-400 italic">No hay recetas que coincidan...</p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -236,14 +297,16 @@ const RecipeBookModal = ({
 
   const renderRecipePage = () => {
     if (!currentRecipe) return null;
-    const contenido = decryptedCache[currentRecipe.id_receta];
+    const recetaId = currentRecipe.id_receta;
+    const contenido = decryptedCache[recetaId];
     const cuentaConAcceso = tienePermiso();
-    const tienePasswordEnSesion = !!sessionStorage.getItem(VAULT_SESSION_KEY);
+    const tienePasswordEnSesion = !!sessionStorage.getItem('culinary_vault_temp_pw');
+    const mostrarCargando = isDecrypting || (cuentaConAcceso && tienePasswordEnSesion && !contenido);
 
     return (
       <div className="flex w-full h-full bg-[#FDFCF0]">
         
-        {/* LADO IZQUIERDO: Metadatos y Público (Se queda igual) */}
+        {/* LADO IZQUIERDO: Metadatos y Público */}
         <div className="w-1/2 p-12 border-r-4 border-stone-300 shadow-[inset_-10px_0_20px_rgba(0,0,0,0.05)] overflow-y-auto bg-white">
           <div className="flex justify-between items-start mb-6">
             <span className="text-[10px] font-black bg-orange-100 text-orange-700 px-3 py-1 rounded-full uppercase tracking-widest">
@@ -296,73 +359,21 @@ const RecipeBookModal = ({
 
         {/* LADO DERECHO: Ingredientes y Pasos (Secretos) */}
         <div className="w-1/2 p-12 overflow-y-auto relative bg-[#FDFCF0]">
-            {isDecrypting ? (
-                /* 1. Estado: Descifrando */
-                <div className="h-full flex flex-col items-center justify-center text-orange-600">
-                  <div className="relative mb-6">
-                      <ShieldCheck size={60} className="animate-pulse" />
-                      <div className="absolute inset-0 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin"></div>
-                  </div>
-                  <p className="font-bold font-mono text-sm tracking-tighter uppercase">Desbloqueando Llave Privada...</p>
-                  <p className="text-[10px] text-stone-400 mt-2 uppercase font-bold tracking-widest">Protocolo ECDH + AES-256</p>
-                </div>
-            ) : !contenido ? (
-                <div className="h-full flex flex-col items-center justify-center text-stone-500 animate-in zoom-in duration-500 p-6">
-                  {tienePermiso ? (
-                    <>
-                      {/* CASO A: TIENE SUSCRIPCIÓN - PEDIR CONTRASEÑA SI NO HAY EN SESIÓN, SINO MOSTRAR FORMULARIO DE DESCIFRADO */}
-                      {isDecrypting && tienePasswordEnSesion ? (
-                        <div className="animate-pulse text-orange-600 font-bold">Abriendo Bóveda...</div>
-                      ) : (
-                        <>
-                          <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                            <ShieldCheck size={40} className="text-orange-600" />
-                          </div>
-                          <h3 className="text-2xl font-black text-stone-800 mb-2 font-serif text-center">Bóveda Protegida</h3>
-                          <p className="text-stone-500 mb-8 text-center text-sm leading-relaxed">
-                            Ingresa tu contraseña una vez para desbloquear todas las recetas de esta sesión.
-                          </p>
-                          
-                          <div className="w-full max-w-xs space-y-4">
-                            <input 
-                              type="password" 
-                              placeholder="Tu contraseña secreta"
-                              className="w-full p-4 bg-white border-2 border-stone-200 rounded-2xl focus:border-orange-500 outline-none text-center font-bold tracking-widest"
-                              value={vaultPassword}
-                              onChange={(e) => setVaultPassword(e.target.value)}
-                              onKeyDown={(e) => e.key === 'Enter' && decryptPage(vaultPassword)}
-                            />
-                            <button 
-                              onClick={() => decryptPage(vaultPassword)}
-                              className="w-full bg-stone-800 hover:bg-orange-700 text-white font-bold py-4 rounded-2xl shadow-lg transition-all flex items-center justify-center gap-3"
-                            >
-                              <Lock size={18} /> Revelar Secreto
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </>
-                  ) : (
-                    /* CASO B: NO TIENE SUSCRIPCIÓN - MOSTRAR PUBLICIDAD */
-                    <>
-                      <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                          <Lock size={40} className="text-stone-300" />
-                      </div>
-                      <h3 className="text-2xl font-black text-stone-800 mb-3 font-serif">Bóveda Bloqueada</h3>
-                      <p className="text-stone-500 mb-8 text-center max-w-xs leading-relaxed">
-                          No tienes acceso a esta receta. ¡Suscríbete al Chef para revelar este y todos sus secretos culinarios!
-                      </p>
-                      <button 
-                          onClick={() => onSubscribeClick(currentRecipe)}
-                          className="bg-[#D35400] hover:bg-orange-700 text-white font-bold py-4 px-8 rounded-2xl shadow-lg transition-all hover:scale-105 hover:shadow-orange-500/30 flex items-center gap-3"
-                      >
-                          <Lock size={18} /> Suscribirse Ahora
-                      </button>
-                    </>
-                  )}
-                </div>
-            ) : ( 
-            /* CASO C: CONTENIDO DESCIFRADO - MOSTRAR RECETA */
+          {mostrarCargando ? (
+            /* 1. MIENTRAS ESTÉ CARGANDO (Manual o Auto) */
+            <div className="h-full flex flex-col items-center justify-center text-orange-600">
+              <div className="relative mb-6">
+                <ShieldCheck size={60} className="animate-pulse" />
+                <div className="absolute inset-0 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin"></div>
+              </div>
+              <p className="font-bold font-mono text-sm uppercase text-center">
+                {sessionStorage.getItem('culinary_vault_temp_pw') 
+                  ? "Abriendo Bóveda automáticamente..." 
+                  : "Desbloqueando Identidad..."}
+              </p>
+            </div>
+          ) : contenido ? (
+            /* --- 2. ESTADO: ÉXITO (Se ve la receta) --- */
             <div className="animate-in fade-in slide-in-from-right-4 duration-700">
               <h3 className="text-2xl font-black text-stone-800 mb-6 flex items-center gap-3">
                 <BookOpen size={24} className="text-orange-500"/> Ingredientes
@@ -371,7 +382,7 @@ const RecipeBookModal = ({
                 {contenido.ingredientes.map((ing, i) => (
                   <li key={i} className="flex gap-3 text-base group">
                     <span className="font-black text-orange-600 min-w-[50px] text-right">
-                        {scaleQuantity(ing.cantidad, currentRecipe.porciones)}
+                      {scaleQuantity(ing.cantidad, currentRecipe.porciones)}
                     </span>
                     <span className="text-stone-700 group-hover:translate-x-1 transition-transform">{ing.nombre}</span>
                   </li>
@@ -383,8 +394,8 @@ const RecipeBookModal = ({
                 {contenido.pasos.map((paso, i) => (
                   <div key={i} className="flex gap-5 relative">
                     <div className="flex flex-col items-center">
-                        <span className="w-8 h-8 bg-stone-800 text-white rounded-full flex items-center justify-center text-sm font-bold z-10">{i+1}</span>
-                        {i < contenido.pasos.length - 1 && <div className="w-0.5 h-full bg-stone-200 absolute top-8"></div>}
+                      <span className="w-8 h-8 bg-stone-800 text-white rounded-full flex items-center justify-center text-sm font-bold z-10">{i+1}</span>
+                      {i < contenido.pasos.length - 1 && <div className="w-0.5 h-full bg-stone-200 absolute top-8"></div>}
                     </div>
                     <p className="text-stone-700 leading-relaxed pt-1 text-sm">{paso}</p>
                   </div>
@@ -393,13 +404,59 @@ const RecipeBookModal = ({
 
               {contenido.imagenes?.length > 1 && (
                 <div className="grid grid-cols-3 gap-3">
-                    {contenido.imagenes.slice(1).map((img, i) => (
+                  {contenido.imagenes.slice(1).map((img, i) => (
                     <button key={i} onClick={() => setShowGalleryImage(img)} className="aspect-square rounded-2xl overflow-hidden shadow-md hover:scale-95 transition-all">
-                        <img src={img} alt="Paso" className="w-full h-full object-cover"/>
+                      <img src={img} alt="Paso" className="w-full h-full object-cover"/>
                     </button>
-                    ))}
+                  ))}
                 </div>
               )}
+            </div>
+
+          ) : !cuentaConAcceso ? (
+            /* --- 3. ESTADO: SIN SUSCRIPCIÓN (Publicidad) --- */
+            <div className="h-full flex flex-col items-center justify-center text-stone-500 animate-in zoom-in duration-500 p-6">
+              <div className="w-24 h-24 bg-stone-100 rounded-full flex items-center justify-center mb-6 shadow-inner">
+                <Lock size={40} className="text-stone-300" />
+              </div>
+              <h3 className="text-2xl font-black text-stone-800 mb-3 font-serif">Bóveda Bloqueada</h3>
+              <p className="text-stone-500 mb-8 text-center max-w-xs leading-relaxed">
+                No tienes acceso a esta receta. ¡Suscríbete al Chef para revelar este y todos sus secretos culinarios!
+              </p>
+              <button 
+                onClick={() => onSubscribeClick(currentRecipe)}
+                className="bg-[#D35400] hover:bg-orange-700 text-white font-bold py-4 px-8 rounded-2xl shadow-lg transition-all hover:scale-105 hover:shadow-orange-500/30 flex items-center gap-3"
+              >
+                <Lock size={18} /> Suscribirse Ahora
+              </button>
+            </div>
+
+          ) : (
+            /* --- 4. ESTADO: PEDIR CONTRASEÑA (Solo si no hay nada en sesión) --- */
+            <div className="h-full flex flex-col items-center justify-center p-6">
+              <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center mb-6">
+                <ShieldCheck size={40} className="text-orange-600" />
+              </div>
+              <h3 className="text-2xl font-black text-stone-800 mb-2 font-serif text-center">Bóveda Protegida</h3>
+              <p className="text-stone-500 mb-8 text-center text-sm leading-relaxed max-w-xs">
+                Ingresa tu contraseña de bóveda para revelar esta receta.
+              </p>
+              <div className="w-full max-w-xs space-y-4">
+                <input 
+                  type="password" 
+                  placeholder="Contraseña de acceso"
+                  className="w-full p-4 border-2 border-stone-200 rounded-2xl text-center font-bold tracking-widest"
+                  value={vaultPassword}
+                  onChange={(e) => setVaultPassword(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && decryptPage(vaultPassword)}
+                />
+                <button 
+                  onClick={() => decryptPage(vaultPassword)}
+                  className="w-full bg-stone-800 hover:bg-orange-700 text-white font-bold py-4 rounded-2xl transition-all flex items-center justify-center gap-3"
+                >
+                  <Lock size={18} /> Revelar Secreto
+                </button>
+              </div>
             </div>
           )}
         </div>
