@@ -13,7 +13,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# Forzar salida en UTF-8 para evitar bloqueos en Windows/Node
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def wrap_key(subscriber_public_pem_b64, aes_key_b64):
@@ -77,5 +76,4 @@ if __name__ == "__main__":
     if mode == "wrap":
         print(json.dumps(wrap_key(sys.argv[2], sys.argv[3])))
     elif mode == "unwrap":
-        # Nota: La llave privada se pasa como string directo
         print(unwrap_key(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]))
