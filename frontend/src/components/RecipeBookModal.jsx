@@ -148,11 +148,20 @@ const RecipeBookModal = ({
             sessionStorage.setItem('culinary_vault_temp_pw', passwordToUse);
             setVaultPassword('');
         }
+        else {
+            alert("❌ Error: " + (response.message || "Contraseña de bóveda incorrecta"));
+            setVaultPassword('');
+            sessionStorage.removeItem('culinary_vault_temp_pw');
+        }
     } catch (e) {
         console.error("❌ ERROR EN EL PROTOCOLO LOCAL:", e);
+
+        const errorMsg = e.response?.data?.message || "Error al validar la identidad en la bóveda";
+        alert("⚠️ " + errorMsg);
+
         sessionStorage.removeItem('culinary_vault_temp_pw');
+        setVaultPassword('');
     } finally {
-        // Un pequeño retraso para asegurar que el cache se guardó antes de quitar el loader
         setTimeout(() => setIsDecrypting(false), 300);
     }
   };

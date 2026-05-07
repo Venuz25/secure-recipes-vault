@@ -23,27 +23,6 @@ const runPython = (script, args) => {
     });
 };
 
-// UTILS: Criptografía
-// Descifrado de la receta usando Python
-const decryptRecipeProcess = (nonce, ciphertext, aesKey, hash) => {
-    return new Promise((resolve, reject) => {
-        const scriptPath = path.join(__dirname, '../../crypto_vault/cipher.py');
-        const python = spawn('python', [scriptPath, 'decrypt', nonce, ciphertext, aesKey, hash]);
-        
-        python.stdout.setEncoding('utf8');
-        let result = "";
-        let errorData = "";
-
-        python.stdout.on('data', (d) => result += d);
-        python.stderr.on('data', (d) => errorData += d.toString());
-
-        python.on('close', (code) => {
-            if (code !== 0) return reject(errorData);
-            resolve(result.trim());
-        });
-    });
-};
-
 // EXPLORACIÓN Y DESCUBRIMIENTO
 // Buscador de recetas con filtros avanzados
 exports.exploreRecipes = async (req, res) => {
@@ -186,7 +165,6 @@ exports.getRecipeContent = async (req, res) => {
     try {
         const { id_usuario, id_receta, password } = req.body;
 
-        // 1. VALIDACIÓN DE PERMISOS Y METADATOS
         const recipeRows = await pool.query(
             'SELECT id_chef, url_archivo_cifrado, hash_archivo FROM receta WHERE id_receta = ?', 
             [id_receta]
@@ -208,7 +186,7 @@ exports.getRecipeContent = async (req, res) => {
             return res.status(403).json({ status: 'expired', message: 'Acceso denegado: Suscripción inactiva.' });
         }
 
-        // --- VALIDACIÓN DE CREDENCIALES ---
+        // VALIDACIÓN DE CREDENCIALES
         const userRows = await pool.query('SELECT * FROM usuarios WHERE id_usuario = ?', [id_usuario]);
         const user = userRows[0];
 
@@ -229,13 +207,11 @@ exports.getRecipeContent = async (req, res) => {
         console.log("Solicitante ID:", id_usuario);
         console.log("Receta ID:", id_receta);
 
-        // 2. RECUPERACIÓN DE IDENTIDAD CIFRADA
         console.log("\nRecuperando Identidad Cifrada del Suscriptor para exportación...");
         console.log("   Clave Privada (ECDSA cifrada):", user.clave_privada_cifrada);
         console.log("   Salt (PBKDF2):", user.crypto_salt);
         console.log("   Nonce (AES-GCM):", user.crypto_nonce);
 
-        // 3. RECUPERACIÓN DE CLAVE SIMÉTRICA DE LA RECETA
         console.log("\nAccediendo a la Clave Simétrica de la Receta...");
         const keyRows = await pool.query(
             'SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ?', 
@@ -244,7 +220,7 @@ exports.getRecipeContent = async (req, res) => {
         const recipeAesKey = keyRows[0].clave_simetrica_cifrada;
         console.log("   Clave AES de Receta (B64):", recipeAesKey);
 
-        // 4. PROTOCOLO DE ENVOLTURA (KEY WRAPPING)
+        // KEY WRAPPING
         console.log("\nEjecutando ECDH para protección en tránsito...");
         const pythonWrap = spawn('python', [path.join(__dirname, '../../crypto_vault/sharing.py'), 'wrap', user.clave_publica, recipeAesKey]);
         let wrapRes = "";
@@ -256,7 +232,6 @@ exports.getRecipeContent = async (req, res) => {
         console.log("   Clave AES Cifrada (Wrapped):", wrappedPackage.wrapped_key);
         console.log("   Nonce de Envoltura:", wrappedPackage.nonce);
 
-        // 5. OBTENCIÓN DE CONTENIDO CIFRADO (BLOB)
         console.log("\nRecuperando contenido cifrado de external_vault...");
         const vaultPath = path.join(__dirname, '../../../external_vault', url_archivo_cifrado);
         const fileContent = await fs.readJson(vaultPath);

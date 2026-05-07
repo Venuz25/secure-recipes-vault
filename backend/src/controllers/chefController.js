@@ -133,7 +133,6 @@ exports.uploadRecipe = async (req, res) => {
     console.log("Contenido recibido para cifrado:", contenido);
     const cryptoData = await encryptContent(contenido);
 
-    // 2. Guardar archivo físico
     const fileName = `recipe_${Date.now()}.enc`;
     const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
     await fs.ensureDir(path.join(__dirname, '../../../external_vault'));
@@ -146,7 +145,6 @@ exports.uploadRecipe = async (req, res) => {
     console.log("Datos criptográficos:", cryptoData);
     console.log("Archivo cifrado guardado en vault:", vaultPath);
 
-    // 3. Registrar receta en BD
     const sql = `
       INSERT INTO receta (titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, url_archivo_cifrado, hash_archivo, id_chef) 
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -154,7 +152,6 @@ exports.uploadRecipe = async (req, res) => {
     const params = [titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, fileName, cryptoData.hash, id_chef];
     const result = await pool.query(sql, params);
 
-    // 4. Guardar la llave
     await pool.query(
       `INSERT INTO clave_receta (id_receta, clave_simetrica_cifrada) VALUES (?, ?)`,
       [result.insertId, cryptoData.key]
@@ -166,7 +163,7 @@ exports.uploadRecipe = async (req, res) => {
   }
 };
 
-// Obtener receta descifrada para visualización o edición
+// Obtener receta descifrada para edición
 exports.getDecryptedRecipe = async (req, res) => {
   try {
     const { id_receta } = req.params;
@@ -211,7 +208,6 @@ exports.updateRecipe = async (req, res) => {
         const oldFileResult = await pool.query('SELECT url_archivo_cifrado FROM receta WHERE id_receta = ?', [id_receta]);
         const oldFileName = oldFileResult[0]?.url_archivo_cifrado;
 
-        // 1. Re-cifrar y guardar nuevo archivo
         console.log("\n\n========== RECIFRANDO RECETA ==========");
         console.log("Recifrando receta:", {titulo, oldFileName});
         console.log("Contenido recibido para re-cifrado:", contenido);
@@ -228,7 +224,6 @@ exports.updateRecipe = async (req, res) => {
         console.log("Datos criptográficos del recifrado:", cryptoData);
         console.log("Nuevo archivo cifrado guardado en vault:", vaultPath);
 
-        // 2. Actualizar BD
         await pool.query(
             `UPDATE receta SET 
             titulo = ?, subtitulo = ?, descripcion = ?, tiempo_preparacion = ?, 
@@ -243,7 +238,6 @@ exports.updateRecipe = async (req, res) => {
             [cryptoData.key, id_receta]
         );
 
-        // 3. Limpiar archivo anterior
         if (oldFileName) {
             await fs.remove(path.join(__dirname, '../../../external_vault', oldFileName));
         }
@@ -254,7 +248,7 @@ exports.updateRecipe = async (req, res) => {
     }
 };
 
-// Eliminar receta (con eliminación de archivos y claves)
+// Eliminar receta
 exports.deleteRecipe = async (req, res) => {
     try {
         const { id_receta } = req.params;

@@ -162,7 +162,6 @@ exports.loginUser = async (req, res) => {
     const { correo, password } = req.body;
     let rol = 'usuario';
     
-    // Buscar en ambas tablas
     let rows = await pool.query('SELECT * FROM usuarios WHERE correo = ?', [correo]);
     
     if (!rows || rows.length === 0) {
@@ -265,7 +264,7 @@ exports.confirmEmail = async (req, res) => {
   }
 };
 
-// RUTAS DE PRUEBA / DESARROLL
+// RUTAS DE PRUEBA / DESARROLLO
 // Obtener todos los usuarios (sin información sensible)
 exports.getAllUsers = async (req, res) => {
   try {

@@ -13,7 +13,6 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# Configuración de salida para compatibilidad con flujos de Node.js
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def generate_and_encrypt(password_str):
@@ -47,7 +46,7 @@ def generate_and_encrypt(password_str):
     nonce = os.urandom(12)
     encrypted_private = aesgcm.encrypt(nonce, private_pem_bytes, None)
 
-    # Generación de Hash de verificación (Salted SHA3-256)
+    # Generación de Hash de verificación
     digest = hashes.Hash(hashes.SHA3_256())
     digest.update(salt + password_str.encode('utf-8'))
     password_hash_bytes = digest.finalize()
@@ -65,7 +64,6 @@ def decrypt_private_key(password_str, encrypted_b64, salt_b64, nonce_b64, expect
     try:
         salt = base64.b64decode(salt_b64)
 
-        # Validación opcional de Hash (Skip permitido para protocolos locales)
         if expected_hash_b64 != "VERIFY_SKIP":
             digest = hashes.Hash(hashes.SHA3_256())
             digest.update(salt + password_str.encode('utf-8'))
@@ -77,7 +75,6 @@ def decrypt_private_key(password_str, encrypted_b64, salt_b64, nonce_b64, expect
         nonce = base64.b64decode(nonce_b64)
         encrypted_data = base64.b64decode(encrypted_b64)
 
-        # Re-derivación de la clave simétrica
         kdf = PBKDF2HMAC(
             algorithm=hashes.SHA3_256(), 
             length=16, 
@@ -86,7 +83,6 @@ def decrypt_private_key(password_str, encrypted_b64, salt_b64, nonce_b64, expect
         )
         aes_key = kdf.derive(password_str.encode())
 
-        # Descifrado y verificación de autenticidad (Tag check)
         aesgcm = AESGCM(aes_key)
         decrypted_pem_bytes = aesgcm.decrypt(nonce, encrypted_data, None)
         
