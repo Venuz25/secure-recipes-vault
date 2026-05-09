@@ -125,78 +125,135 @@ exports.updateChefPrices = async (req, res) => {
 // GESTIÓN DE RECETAS
 // Crear nueva receta (con cifrado y almacenamiento seguro)
 exports.uploadRecipe = async (req, res) => {
-  try {
-    const { id_chef, titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, contenido } = req.body;
+    try {
+        const { id_chef, titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, contenido } = req.body;
 
-    console.log("\n\n========== CIFRANDO NUEVA RECETA ==========");
-    console.log("Cifrando receta:", titulo);
-    console.log("Contenido recibido para cifrado:", contenido);
-    const cryptoData = await encryptContent(contenido);
+        console.log("\n\n========== CIFRANDO NUEVA RECETA ==========");
+        console.log("Cifrando receta:", titulo);
+        console.log("Contenido recibido para cifrado:", contenido);
+        const cryptoData = await encryptContent(contenido);
 
-    const fileName = `recipe_${Date.now()}.enc`;
-    const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
-    await fs.ensureDir(path.join(__dirname, '../../../external_vault'));
-    
-    await fs.writeFile(vaultPath, JSON.stringify({
-        nonce: cryptoData.nonce,
-        ciphertext: cryptoData.ciphertext
-    }));
+        const fileName = `recipe_${Date.now()}.enc`;
+        const vaultPath = path.join(__dirname, '../../../external_vault', fileName);
+        await fs.ensureDir(path.join(__dirname, '../../../external_vault'));
+        
+        await fs.writeFile(vaultPath, JSON.stringify({
+            nonce: cryptoData.nonce,
+            ciphertext: cryptoData.ciphertext
+        }));
 
-    console.log("Datos criptográficos:", cryptoData);
-    console.log("Archivo cifrado guardado en vault:", vaultPath);
+        console.log("Datos criptográficos:", cryptoData);
+        console.log("Archivo cifrado guardado en vault:", vaultPath);
 
-    const sql = `
-      INSERT INTO receta (titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, url_archivo_cifrado, hash_archivo, id_chef) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const params = [titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, fileName, cryptoData.hash, id_chef];
-    const result = await pool.query(sql, params);
+        console.log("\n[VAULT] Protegiendo clave AES con la Bóveda del Servidor...");
+        const vaultPubKeyB64 = process.env.VAULT_PUBLIC_KEY;    
+        const wrapPython = spawn('python', [
+            path.join(__dirname, '../../crypto_vault/sharing.py'), 
+            'wrap', 
+            vaultPubKeyB64, 
+            cryptoData.key
+        ]);
+        
+        let wrapRes = "";
+        await new Promise(r => { 
+            wrapPython.stdout.on('data', d => wrapRes += d); 
+            wrapPython.on('close', r); 
+        });
 
-    await pool.query(
-      `INSERT INTO clave_receta (id_receta, clave_simetrica_cifrada) VALUES (?, ?)`,
-      [result.insertId, cryptoData.key]
-    );
+        const vaultWrappedKey = JSON.parse(wrapRes);
+        if (vaultWrappedKey.status === "error") {
+            throw new Error("Python Wrap Error: " + vaultWrappedKey.message);
+        }
+        console.log("[VAULT] Clave AES envuelta exitosamente:\n", vaultWrappedKey);
 
-    res.json({ status: 'ok', message: 'Receta cifrada y guardada.' });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
-  }
+        const sql = `
+        INSERT INTO receta (titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, url_archivo_cifrado, hash_archivo, id_chef) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+        const params = [titulo, subtitulo, descripcion, tiempo_preparacion, dificultad, porciones, id_categoria, fileName, cryptoData.hash, id_chef];
+        const result = await pool.query(sql, params);
+
+        const dbPayloadBase64 = Buffer.from(JSON.stringify(vaultWrappedKey)).toString('base64');
+
+        await pool.query(
+        `INSERT INTO clave_receta (id_receta, clave_simetrica_cifrada) VALUES (?, ?)`,
+        [result.insertId, dbPayloadBase64]
+        );
+
+        res.json({ status: 'ok', message: 'Receta cifrada y guardada.' });
+    } catch (error) {
+        console.error("Error crítico en uploadRecipe:", error);
+        res.status(500).json({ status: 'error', message: error.message });
+    }
 };
 
 // Obtener receta descifrada para edición
 exports.getDecryptedRecipe = async (req, res) => {
-  try {
-    const { id_receta } = req.params;
+    try {
+        const { id_receta } = req.params;
 
-    const query = `
-      SELECT r.url_archivo_cifrado, r.hash_archivo, c.clave_simetrica_cifrada 
-      FROM receta r 
-      JOIN clave_receta c ON r.id_receta = c.id_receta 
-      WHERE r.id_receta = ?
-    `;
-    const [receta] = await pool.query(query, [id_receta]);
+        const query = `
+        SELECT r.url_archivo_cifrado, r.hash_archivo, c.clave_simetrica_cifrada 
+        FROM receta r 
+        JOIN clave_receta c ON r.id_receta = c.id_receta 
+        WHERE r.id_receta = ?
+        `;
+        const [receta] = await pool.query(query, [id_receta]);
 
-    const vaultPath = path.join(__dirname, '../../../external_vault', receta.url_archivo_cifrado);
-    const fileRaw = await fs.readFile(vaultPath, 'utf8');
-    const { nonce, ciphertext } = JSON.parse(fileRaw);
+        const vaultPath = path.join(__dirname, '../../../external_vault', receta.url_archivo_cifrado);
+        const fileRaw = await fs.readFile(vaultPath, 'utf8');
+        const { nonce, ciphertext } = JSON.parse(fileRaw);
 
-    console.log("\n\n========== DESCIFRANDO RECETA ==========");
-    console.log("Descifrando receta:", {id: id_receta, file: receta.url_archivo_cifrado});
-    console.log("Contenido para cifrado:", { ciphertext });
-    console.log("Datos del archivo:", {nonce, clave: receta.clave_simetrica_cifrada, hash: receta.hash_archivo});
+        console.log("\n\n========== DESCIFRANDO RECETA ==========");
+        console.log("Descifrando receta:", {id: id_receta, file: receta.url_archivo_cifrado});
+        console.log("Contenido para cifrado:", { ciphertext });
+        console.log("Datos del archivo:", {nonce, clave_en_boveda: receta.clave_simetrica_cifrada, hash: receta.hash_archivo});
 
-    const decryptedData = await decryptContent(nonce, ciphertext, receta.clave_simetrica_cifrada, receta.hash_archivo);
+        console.log("\n[VAULT] Desenvolviendo clave AES maestra con la llave privada del servidor...");
+        const vaultPackage = JSON.parse(Buffer.from(receta.clave_simetrica_cifrada, 'base64').toString('utf-8'));
+        const vaultPrivB64 = process.env.VAULT_PRIVATE_KEY;
 
-    console.log("Datos descifrados:", decryptedData);
+        console.log("   Paquete cifrado recuperado de la base de datos:", vaultPackage);
+        console.log("   Clave privada del vault (base64):", vaultPrivB64);
+        
+        const unwrapPython = spawn('python', [
+            path.join(__dirname, '../../crypto_vault/sharing.py'), 
+            'unwrap', 
+            vaultPrivB64,
+            vaultPackage.ephemeral_public_key, 
+            vaultPackage.wrapped_key, 
+            vaultPackage.nonce
+        ]);
+        let unwrapRes = "";
+        await new Promise(r => { 
+            unwrapPython.stdout.on('data', d => unwrapRes += d); 
+            unwrapPython.on('close', r); 
+        });
 
-    res.json({ status: 'ok', data: decryptedData });
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    if (errorMessage.includes("INTEGRITY_ERROR")) {
-        return res.status(403).json({ status: 'error', message: "Alerta de Seguridad: El contenido de la receta no coincide con su hash oficial." });
+        const rawAesKey = unwrapRes.trim();
+        if (rawAesKey.includes("error") || rawAesKey.includes("Unable") || rawAesKey.length < 10) {
+            console.error("\n[X] ERROR EN LA BÓVEDA (VAULT):");
+            console.error(rawAesKey);
+            throw new Error("La Bóveda falló al recuperar la llave.");
+        }
+
+        console.log("\n[VAULT] Clave AES maestra recuperada exitosamente.");
+        console.log("   Clave AES:", {rawAesKey})
+
+        const safeAesKey = rawAesKey.replace(/[^A-Za-z0-9+/=]/g, "");
+        const decryptedData = await decryptContent(nonce, ciphertext, safeAesKey, receta.hash_archivo);
+
+        console.log("Datos descifrados:", decryptedData);
+
+        res.json({ status: 'ok', data: decryptedData });
+    } catch (error) {
+        console.error("Error en getDecryptedRecipe:", error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("INTEGRITY_ERROR")) {
+            return res.status(403).json({ status: 'error', message: "Alerta de Seguridad: El contenido de la receta no coincide con su hash oficial." });
+        }
+        res.status(500).json({ status: 'error', message: "No se pudo descifrar la receta." });
     }
-    res.status(500).json({ status: 'error', message: "No se pudo descifrar la receta." });
-  }
 };
 
 // Actualizar receta (con re-cifrado y manejo de archivos)
@@ -224,6 +281,29 @@ exports.updateRecipe = async (req, res) => {
         console.log("Datos criptográficos del recifrado:", cryptoData);
         console.log("Nuevo archivo cifrado guardado en vault:", vaultPath);
 
+        console.log("\n[VAULT] Protegiendo clave AES con la Bóveda del Servidor...");
+        const vaultPubKeyB64 = process.env.VAULT_PUBLIC_KEY;        
+        
+        const wrapPython = spawn('python', [
+            path.join(__dirname, '../../crypto_vault/sharing.py'), 
+            'wrap', 
+            vaultPubKeyB64, 
+            cryptoData.key
+        ]);
+        
+        let wrapRes = "";
+        await new Promise(r => { 
+            wrapPython.stdout.on('data', d => wrapRes += d); 
+            wrapPython.on('close', r); 
+        });
+        const vaultWrappedKey = JSON.parse(wrapRes);
+        
+        if (vaultWrappedKey.status === "error") {
+            throw new Error("Python Wrap Error: " + vaultWrappedKey.message);
+        }
+        
+        console.log("[VAULT] Nueva clave AES envuelta exitosamente:\n", vaultWrappedKey);
+
         await pool.query(
             `UPDATE receta SET 
             titulo = ?, subtitulo = ?, descripcion = ?, tiempo_preparacion = ?, 
@@ -233,9 +313,11 @@ exports.updateRecipe = async (req, res) => {
              otrosDatos.dificultad, otrosDatos.porciones, otrosDatos.id_categoria, fileName, cryptoData.hash, id_receta]
         );
 
+        const dbPayloadBase64 = Buffer.from(JSON.stringify(vaultWrappedKey)).toString('base64');
+
         await pool.query(
             `UPDATE clave_receta SET clave_simetrica_cifrada = ? WHERE id_receta = ?`,
-            [cryptoData.key, id_receta]
+            [dbPayloadBase64, id_receta]
         );
 
         if (oldFileName) {
@@ -244,6 +326,7 @@ exports.updateRecipe = async (req, res) => {
 
         res.json({ status: 'ok', message: 'Receta actualizada correctamente.' });
     } catch (error) {
+        console.error("Error en updateRecipe:", error);
         res.status(500).json({ status: 'error', message: error.message });
     }
 };

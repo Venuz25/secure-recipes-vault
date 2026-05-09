@@ -53,25 +53,37 @@ exports.unwrapKey = async (req, res) => {
         const { privateKey, ephemeralPublic, wrappedKey, nonce } = req.body;
 
         console.log("Desarrollando protocolo ECDH para recuperación de clave AES...");
-        console.log("Datos para desenvolvimiento ECDH:");
-        console.log("   Private Key PEM (Usuario):\n" + privateKey);
-        console.log("   Ephemeral Public Key (Servidor):\n" + ephemeralPublic);
-        console.log("   Wrapped AES Key:", wrappedKey);
-        console.log("   Wrap Nonce:", nonce);
+        const privateKeyB64 = Buffer.from(privateKey).toString('base64');
 
-        const aesKey = await runPython('sharing.py', ['unwrap', privateKey, ephemeralPublic, wrappedKey, nonce]);
+        console.log("Datos para desenvolvimiento ECDH:");
+        console.log("   Private Key PEM (Usuario) preparada en B64.");
+        console.log("   Ephemeral Public Key (Servidor):\n" + ephemeralPublic);
+
+        const aesKeyRaw = await runPython('sharing.py', [
+            'unwrap', 
+            privateKeyB64, 
+            ephemeralPublic, 
+            wrappedKey, 
+            nonce
+        ]);
         
+        const aesKey = aesKeyRaw.toString().replace(/[^A-Za-z0-9+/=]/g, "");
+        if (aesKey.includes("error") || aesKey.length < 10) {
+            console.error("\n[ERROR EN PYTHON]:", aesKeyRaw);
+            throw new Error("El protocolo ECDH falló en el módulo de seguridad.");
+        }
+
         console.log("\nResultado del protocolo ECDH:");
         console.log("   Clave Simétrica AES Recuperada (B64):", aesKey);
 
         res.json({ status: 'ok', aes_key: aesKey });
     } catch (error) {
-        console.error("\n[ERROR CRÍTICO]:", error);
-        res.status(500).json({ status: 'error', message: 'Fallo en el protocolo ECDH.' });
+        console.error("\n[ERROR CRÍTICO]:", error.message);
+        res.status(500).json({ status: 'error', message: error.message || 'Fallo en el protocolo ECDH.' });
     }
 };
 
-// PASO C: Descifrado Final de la Receta
+// Descifrado Final de la Receta
 exports.decryptRecipe = async (req, res) => {
     try {
         const { ciphertext, nonce, aesKey, hash } = req.body;

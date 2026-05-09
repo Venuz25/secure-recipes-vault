@@ -186,7 +186,6 @@ exports.getRecipeContent = async (req, res) => {
             return res.status(403).json({ status: 'expired', message: 'Acceso denegado: Suscripción inactiva.' });
         }
 
-        // VALIDACIÓN DE CREDENCIALES
         const userRows = await pool.query('SELECT * FROM usuarios WHERE id_usuario = ?', [id_usuario]);
         const user = userRows[0];
 
@@ -212,22 +211,44 @@ exports.getRecipeContent = async (req, res) => {
         console.log("   Salt (PBKDF2):", user.crypto_salt);
         console.log("   Nonce (AES-GCM):", user.crypto_nonce);
 
-        console.log("\nAccediendo a la Clave Simétrica de la Receta...");
+        console.log("\nAccediendo a la Clave Simétrica de la Receta en la Bóveda...");
         const keyRows = await pool.query(
             'SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ?', 
             [id_receta]
         );
-        const recipeAesKey = keyRows[0].clave_simetrica_cifrada;
-        console.log("   Clave AES de Receta (B64):", recipeAesKey);
+        
+        const dbPayloadBase64 = keyRows[0].clave_simetrica_cifrada;
+        const vaultPackage = JSON.parse(Buffer.from(dbPayloadBase64, 'base64').toString('utf-8'));
+        console.log("   [VAULT] Paquete cifrado descodificado (Base64 -> JSON) correctamente.");
 
-        // KEY WRAPPING
-        console.log("\nEjecutando ECDH para protección en tránsito...");
-        const pythonWrap = spawn('python', [path.join(__dirname, '../../crypto_vault/sharing.py'), 'wrap', user.clave_publica, recipeAesKey]);
+        console.log("\nEjecutando ECDH de Arbitraje para protección en tránsito...");
+        console.log("   [VAULT] Traduciendo cifrado maestro a cifrado del suscriptor...");
+        
+        const vaultPrivB64 = process.env.VAULT_PRIVATE_KEY;
+        const userPubB64 = user.clave_publica;
+        const pythonRewrap = spawn('python', [
+            path.join(__dirname, '../../crypto_vault/sharing.py'), 
+            'rewrap', 
+            vaultPrivB64, 
+            vaultPackage.ephemeral_public_key, 
+            vaultPackage.wrapped_key, 
+            vaultPackage.nonce,
+            userPubB64
+        ]);
+        
         let wrapRes = "";
-        await new Promise(r => { pythonWrap.stdout.on('data', d => wrapRes += d); pythonWrap.on('close', r); });
+        await new Promise(r => { 
+            pythonRewrap.stdout.on('data', d => wrapRes += d); 
+            pythonRewrap.on('close', r); 
+        });
         const wrappedPackage = JSON.parse(wrapRes);
 
-        console.log("Paquete de Clave Envuelta generado:");
+        if(wrappedPackage.status === "error") {
+            console.error("\n[ERROR CRÍTICO VAULT]:", wrappedPackage.message);
+            return res.status(500).json({ status: 'error', message: "Error interno re-envolviendo la clave." });
+        }
+
+        console.log("Paquete de Clave Envuelta generado para el Suscriptor:");
         console.log("   Clave Pública Efémera:", wrappedPackage.ephemeral_public_key);
         console.log("   Clave AES Cifrada (Wrapped):", wrappedPackage.wrapped_key);
         console.log("   Nonce de Envoltura:", wrappedPackage.nonce);
