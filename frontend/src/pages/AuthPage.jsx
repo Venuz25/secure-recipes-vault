@@ -138,7 +138,7 @@ const AuthPage = () => {
 
             {isLogin ? (
               <>
-                <h1 className="text-4xl font-serif-recipe font-bold mb-4">La Bóveda Culiniaria</h1>
+                <h1 className="text-4xl font-serif-recipe font-bold mb-4">La Bóveda Culinaria</h1>
                 <p className="text-emerald-100 text-lg">Inicia sesión para desbloquear mis secretos de cocina más preciados.</p>
               </>
             ) : (
@@ -171,10 +171,10 @@ const AuthPage = () => {
                 exit="exit"
                 className="absolute inset-x-10 top-25"
               >
-                <h2 className="text-3xl font-serif-recipe font-bold text-[#5D4037] mb-6 text-center">Entrar a mi Cuenta Culiniaria</h2>
+                <h2 className="text-3xl font-serif-recipe font-bold text-[#5D4037] mb-6 text-center">Entrar a mi Cuenta Culinaria</h2>
                 <form onSubmit={handleLoginSubmit} className="space-y-5">
                   <input type="email" placeholder="Correo electrónico del suscriptor" className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#2E7D32] outline-none transition-all" onChange={(e) => setLoginData({...loginData, correo: e.target.value})} required />
-                  <input type="password" placeholder="Tu contraseña secreta culiniaria" className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#2E7D32] outline-none transition-all" onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
+                  <input type="password" placeholder="Tu contraseña secreta Culinaria" className="w-full p-4 rounded-xl border border-gray-200 focus:ring-2 focus:ring-[#2E7D32] outline-none transition-all" onChange={(e) => setLoginData({...loginData, password: e.target.value})} required />
                   <button className="w-full bg-[#5D4037] hover:bg-[#3E2723] text-white font-bold py-4 rounded-xl shadow-lg transition-all transform hover:-translate-y-1 uppercase tracking-wider">Desbloquear mis Recetas</button>
                 </form>
                 <div className="mt-8 text-center text-sm text-[#8D6E63]">
