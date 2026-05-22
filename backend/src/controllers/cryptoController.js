@@ -26,12 +26,12 @@ exports.unlockIdentity = async (req, res) => {
         const { password, privada_cifrada, salt, nonce } = req.body;
         
         console.log("\n========== INICIANDO PROCESO DE DESBLOQUEO DE IDENTIDAD ==========");
-        console.log("\nReconstruyendo Clave Privada PEM...");
-        console.log("Datos de identidad cifrada recibidos:");
-        console.log("   Clave Privada Cifrada:", privada_cifrada);
-        console.log("   Salt (Derivación):", salt);
-        console.log("   Nonce (AES-GCM):", nonce);
-        console.log("   Password (Input):", password);
+        console.log("Reconstruyendo Clave Privada PEM...");
+        console.log("   Datos de identidad cifrada recibidos:");
+        console.log("       Clave Privada Cifrada:", privada_cifrada);
+        console.log("       Salt (Derivación):", salt);
+        console.log("       Nonce (AES-GCM):", nonce);
+        console.log("       Password (Input):", password);
 
         const output = await runPython('keys.py', ['decrypt', password, privada_cifrada, salt, nonce, 'VERIFY_SKIP']);
         const data = JSON.parse(output);
@@ -52,11 +52,11 @@ exports.unwrapKey = async (req, res) => {
     try {
         const { privateKey, ephemeralPublic, wrappedKey, nonce } = req.body;
 
-        console.log("Desarrollando protocolo ECDH para recuperación de clave AES...");
+        console.log("\n========== INICIANDO PROCESO DE DESENVOLTURA DE CLAVE ==========");
         const privateKeyB64 = Buffer.from(privateKey).toString('base64');
 
-        console.log("Datos para desenvolvimiento ECDH:");
-        console.log("   Private Key PEM (Usuario) preparada en B64.");
+        console.log("Datos para Desenvoltura ECDH:");
+        console.log("   Private Key PEM (Usuario):\n" + privateKey);
         console.log("   Ephemeral Public Key (Servidor):\n" + ephemeralPublic);
 
         const aesKeyRaw = await runPython('sharing.py', [
@@ -73,7 +73,7 @@ exports.unwrapKey = async (req, res) => {
             throw new Error("El protocolo ECDH falló en el módulo de seguridad.");
         }
 
-        console.log("\nResultado del protocolo ECDH:");
+        console.log("\nResultado:");
         console.log("   Clave Simétrica AES Recuperada (B64):", aesKey);
 
         res.json({ status: 'ok', aes_key: aesKey });
@@ -87,8 +87,8 @@ exports.unwrapKey = async (req, res) => {
 exports.decryptRecipe = async (req, res) => {
     try {
         const { ciphertext, nonce, aesKey, hash } = req.body;
-
-        console.log("\nIniciando descifrado del contenido de la receta...");
+        
+        console.log("\n========== INICIANDO PROCESO DE DESCIFRADO DE RECETA ==========");
         console.log("Datos para descifrado de contenido:");
         console.log("   Ciphertext:", ciphertext.substring(0, 60) + "...");
         console.log("   AES Key:", aesKey);
@@ -98,8 +98,9 @@ exports.decryptRecipe = async (req, res) => {
         const decryptedData = await runPython('cipher.py', ['decrypt', nonce, ciphertext, aesKey, hash]);
         
         console.log("\nResultado del descifrado AES-GCM:");
-        console.log("   Integridad: Verificada satisfactoriamente.");
-        console.log("   Contenido JSON:\n", decryptedData);
+        console.log("   Integridad: " + (decryptedData ? "OK" : "FALLIDA"));
+        recetaFormato = decryptedData ? JSON.parse(decryptedData) : null;
+        console.log("   Contenido JSON:\n" + JSON.stringify(recetaFormato, null, 2));
 
         res.json({ status: 'ok', data: JSON.parse(decryptedData) });
     } catch (error) {

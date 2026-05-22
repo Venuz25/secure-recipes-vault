@@ -1,5 +1,5 @@
 """
-Genera un nuevo par de claves para el vault y las imprime en formato PEM.
+Genera un nuevo par de claves ECDH para el vault en formato PEM.
 Estas claves se utilizaran para el cifrado de la clave AES de las recetas para guardarse en la base de datos.
 """
 

@@ -202,11 +202,11 @@ exports.getRecipeContent = async (req, res) => {
         }
         console.log("   ESTADO: AUTORIZADO");
 
-        console.log("\n========== INICIANDO PROTOCOLO DE TRANSFERENCIA SEGURA (ECDH) ==========");
+        console.log("\n========== INICIANDO PROTOCOLO ECDH ==========");
         console.log("Solicitante ID:", id_usuario);
         console.log("Receta ID:", id_receta);
 
-        console.log("\nRecuperando Identidad Cifrada del Suscriptor para exportación...");
+        console.log("\nRecuperando Identidad Cifrada del Suscriptor...");
         console.log("   Clave Privada (ECDSA cifrada):", user.clave_privada_cifrada);
         console.log("   Salt (PBKDF2):", user.crypto_salt);
         console.log("   Nonce (AES-GCM):", user.crypto_nonce);
@@ -216,15 +216,21 @@ exports.getRecipeContent = async (req, res) => {
             'SELECT clave_simetrica_cifrada FROM clave_receta WHERE id_receta = ?', 
             [id_receta]
         );
+        console.log("   Clave Simétrica Cifrada:", keyRows[0].clave_simetrica_cifrada);
         
         const dbPayloadBase64 = keyRows[0].clave_simetrica_cifrada;
         const vaultPackage = JSON.parse(Buffer.from(dbPayloadBase64, 'base64').toString('utf-8'));
-        console.log("   [VAULT] Paquete cifrado descodificado (Base64 -> JSON) correctamente.");
 
-        console.log("\nEjecutando ECDH de Arbitraje para protección en tránsito...");
-        console.log("   [VAULT] Traduciendo cifrado maestro a cifrado del suscriptor...");
-        
+        console.log("\n========== INICIANDO RE-ENVOLTURA DE CLAVE ==========");
         const vaultPrivB64 = process.env.VAULT_PRIVATE_KEY;
+
+        console.log("   Parámetros para re-envoltura de clave de la Receta:");
+        console.log("      Clave Privada del Vault:", vaultPrivB64);
+        console.log("      Clave Pública Efímera:", vaultPackage.ephemeral_public_key);
+        console.log("      Nonce de Envoltura Servidor:", vaultPackage.nonce);
+        console.log("      Clave AES Cifrada:", vaultPackage.wrapped_key);
+        console.log("      Clave Pública del Suscriptor:", user.clave_publica);
+
         const userPubB64 = user.clave_publica;
         const pythonRewrap = spawn('python', [
             path.join(__dirname, '../../crypto_vault/sharing.py'), 
@@ -248,17 +254,16 @@ exports.getRecipeContent = async (req, res) => {
             return res.status(500).json({ status: 'error', message: "Error interno re-envolviendo la clave." });
         }
 
-        console.log("Paquete de Clave Envuelta generado para el Suscriptor:");
-        console.log("   Clave Pública Efémera:", wrappedPackage.ephemeral_public_key);
-        console.log("   Clave AES Cifrada (Wrapped):", wrappedPackage.wrapped_key);
-        console.log("   Nonce de Envoltura:", wrappedPackage.nonce);
+        console.log("   \nPaquete de Clave Envuelta generado para el Suscriptor:");
+        console.log("       Clave Pública Efémera:", wrappedPackage.ephemeral_public_key);
+        console.log("       Clave AES Cifrada (Wrapped):", wrappedPackage.wrapped_key);
+        console.log("       Nonce de Envoltura:", wrappedPackage.nonce);
 
         console.log("\nRecuperando contenido cifrado de external_vault...");
         const vaultPath = path.join(__dirname, '../../../external_vault', url_archivo_cifrado);
         const fileContent = await fs.readJson(vaultPath);
+        console.log("   Contenido cifrado recuperado: " + fileContent.ciphertext.substring(0, 60) + "...");
         
-        console.log("Contenido cifrado recuperado satisfactoriamente.");
-
         res.json({ 
             status: 'ok', 
             crypto_payload: {
